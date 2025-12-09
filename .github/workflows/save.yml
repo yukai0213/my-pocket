@@ -29,7 +29,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ~/.npm
-          key: ${{ runner.os }}-node-singlefile-v15
+          key: ${{ runner.os }}-node-singlefile-v16
           restore-keys: |
             ${{ runner.os }}-node-
 
@@ -40,117 +40,139 @@ jobs:
       - name: Link SingleFile
         run: npm link single-file-cli
 
-      # --- 步驟 1: 建立「V15 圖文分離」YouTube 修復腳本 ---
-      - name: Create Split-Layout Faker Script
+      # --- 步驟 1: 建立「V16 萬用版」修復腳本 ---
+      - name: Create Universal Faker Script
         run: |
           cat <<EOF > fix-youtube.js
           (function() {
-            console.log("🖼️ V15 圖文分離版：啟動");
+            console.log("🌐 V16 萬用修復版：啟動");
 
-            function fixYoutube() {
+            function fixIframes() {
                 const iframes = document.querySelectorAll('iframe');
                 
                 iframes.forEach(iframe => {
                     const src = iframe.src || iframe.dataset.src || "";
-                    
-                    // 1. 判斷是否為 YouTube
-                    if (!src.includes('youtube') && !src.includes('youtu.be')) return;
-                    
-                    // 2. 抓取 ID
-                    const match = src.match(/([a-zA-Z0-9_-]{11})/);
-                    const videoId = match ? match[1] : null;
-                    if (!videoId) return;
+                    if (!src) return; // 沒網址的不管
 
-                    // --- V15 關鍵防重邏輯 ---
-                    // 檢查：這個 iframe 的「前一個鄰居」是不是已經是我們做好的容器？
-                    const prev = iframe.previousElementSibling;
-                    if (prev && prev.classList.contains('my-yt-container')) {
-                        // 已經做過了！
-                        // 確保 iframe 是隱藏的，然後離開
-                        iframe.style.display = 'none';
-                        return;
-                    }
-
-                    console.log("✨ 製作圖文分離區塊: " + videoId);
-
-                    // 準備素材
-                    const bgImage = 'url(https://img.youtube.com/vi/' + videoId + '/hqdefault.jpg)';
-                    const targetUrl = 'https://www.youtube.com/watch?v=' + videoId;
-                    
-                    // 抓取寬度 (高度不重要了，因為我們會自己撐開)
-                    let width = iframe.offsetWidth > 10 ? iframe.offsetWidth + "px" : "100%";
-
-                    // --- 建立主容器 ---
-                    const container = document.createElement('div');
-                    container.className = 'my-yt-container'; // 標記身分
-                    container.style.cssText = \`
-                        width: \${width};
-                        margin: 20px auto;
-                        font-family: sans-serif;
-                        box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-                        border-radius: 8px;
-                        overflow: hidden;
-                        background: #f0f0f0;
-                    \`;
-
-                    // --- A. 上方：純圖片區 (不可點) ---
-                    const imgDiv = document.createElement('div');
-                    imgDiv.style.cssText = \`
-                        width: 100%;
-                        height: 315px; /* 固定高度比較整齊 */
-                        background: #000 \${bgImage} center/cover no-repeat;
-                        border-bottom: 1px solid #ddd;
-                    \`;
-
-                    // --- B. 下方：按鈕區 (連結) ---
-                    const btnArea = document.createElement('div');
-                    btnArea.style.cssText = \`
-                        padding: 15px;
-                        text-align: center;
-                        background: #fff;
-                    \`;
-
-                    const linkBtn = document.createElement('a');
-                    linkBtn.href = targetUrl;
-                    linkBtn.target = "_blank";
-                    linkBtn.rel = "noopener noreferrer";
-                    linkBtn.innerText = "📺 點擊前往 YouTube 觀看影片";
-                    linkBtn.style.cssText = \`
-                        display: inline-block;
-                        background-color: #cc0000;
-                        color: white;
-                        padding: 10px 20px;
-                        border-radius: 5px;
-                        text-decoration: none;
-                        font-weight: bold;
-                        font-size: 16px;
-                    \`;
-
-                    // 組裝
-                    btnArea.appendChild(linkBtn);
-                    container.appendChild(imgDiv);
-                    container.appendChild(btnArea);
-
-                    // --- 插入與隱藏 ---
-                    if(iframe.parentNode) {
-                        // 插在 iframe 前面
-                        iframe.parentNode.insertBefore(container, iframe);
-                        // 隱藏 iframe
-                        iframe.style.display = 'none';
+                    // --- 判斷 1: 是不是 YouTube? (VIP 待遇) ---
+                    if (src.includes('youtube') || src.includes('youtu.be')) {
+                        handleYoutube(iframe, src);
+                    } 
+                    // --- 判斷 2: 其他所有 iframe (通用待遇) ---
+                    else {
+                        handleGeneric(iframe, src);
                     }
                 });
             }
 
-            // 掃描機制：每 500ms 檢查一次，持續 20 秒
-            // 因為有 "previousElementSibling" 的檢查，重複掃描也不會重複生
+            // --- 處理 YouTube (圖文分離模式) ---
+            function handleYoutube(iframe, src) {
+                const match = src.match(/([a-zA-Z0-9_-]{11})/);
+                const videoId = match ? match[1] : null;
+                if (!videoId) return handleGeneric(iframe, src); // 抓不到 ID 就降級處理
+
+                // 防重檢查
+                const prev = iframe.previousElementSibling;
+                if (prev && prev.classList.contains('my-yt-container')) {
+                    iframe.style.display = 'none';
+                    return;
+                }
+
+                console.log("✨ YouTube 優化: " + videoId);
+
+                const bgImage = 'url(https://img.youtube.com/vi/' + videoId + '/hqdefault.jpg)';
+                const targetUrl = 'https://www.youtube.com/watch?v=' + videoId;
+                let width = iframe.offsetWidth > 10 ? iframe.offsetWidth + "px" : "100%";
+
+                // 建立容器
+                const container = document.createElement('div');
+                container.className = 'my-yt-container';
+                container.style.cssText = \`
+                    width: \${width};
+                    margin: 20px auto;
+                    font-family: sans-serif;
+                    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+                    border-radius: 8px;
+                    overflow: hidden;
+                    background: #f0f0f0;
+                \`;
+
+                // 圖片區
+                const imgDiv = document.createElement('div');
+                imgDiv.style.cssText = \`
+                    width: 100%;
+                    height: 315px;
+                    background: #000 \${bgImage} center/cover no-repeat;
+                    border-bottom: 1px solid #ddd;
+                \`;
+
+                // 按鈕區
+                const btnArea = document.createElement('div');
+                btnArea.style.cssText = 'padding:15px;text-align:center;background:#fff;';
+                
+                const linkBtn = document.createElement('a');
+                linkBtn.href = targetUrl;
+                linkBtn.target = "_blank";
+                linkBtn.innerText = "📺 點擊前往 YouTube 觀看影片";
+                linkBtn.style.cssText = 'display:inline-block;background-color:#cc0000;color:white;padding:10px 20px;border-radius:5px;text-decoration:none;font-weight:bold;';
+
+                btnArea.appendChild(linkBtn);
+                container.appendChild(imgDiv);
+                container.appendChild(btnArea);
+
+                if(iframe.parentNode) {
+                    iframe.parentNode.insertBefore(container, iframe);
+                    iframe.style.display = 'none';
+                }
+            }
+
+            // --- 處理 通用 iframe (保留原樣 + 頂部按鈕) ---
+            function handleGeneric(iframe, src) {
+                // 防重檢查：看頭頂上有沒有按鈕
+                const prev = iframe.previousElementSibling;
+                if (prev && prev.classList.contains('my-generic-link')) {
+                    return; // 已經加過按鈕了，跳過
+                }
+
+                console.log("🔗 通用 iframe 補強: " + src);
+
+                // 建立一個簡單的連結條
+                const linkBar = document.createElement('a');
+                linkBar.className = 'my-generic-link'; // 標記
+                linkBar.href = src;
+                linkBar.target = "_blank";
+                linkBar.innerText = "🔗 無法預覽內容？點此開啟原始連結";
+                
+                // 樣式：像是一個小標籤貼在 iframe 頭頂
+                linkBar.style.cssText = \`
+                    display: block;
+                    background-color: #444;
+                    color: #fff;
+                    padding: 8px 15px;
+                    font-size: 14px;
+                    text-decoration: none;
+                    text-align: center;
+                    border-radius: 4px;
+                    margin-bottom: 5px;
+                    font-family: sans-serif;
+                    opacity: 0.9;
+                \`;
+
+                // 插入在 iframe 前面 (不刪除 iframe！)
+                if(iframe.parentNode) {
+                    iframe.parentNode.insertBefore(linkBar, iframe);
+                }
+            }
+
+            // 掃描機制
             let attempts = 0;
             const interval = setInterval(() => {
-                fixYoutube();
+                fixIframes();
                 attempts++;
                 if (attempts > 40) clearInterval(interval);
             }, 500);
             
-            fixYoutube();
+            fixIframes();
           })();
           EOF
 
@@ -162,7 +184,7 @@ jobs:
           
           echo "正在抓取: ${{ inputs.url }}"
           
-          # 恢復為 3000ms 等待，這對大部分網頁夠用了
+          # 3000ms 等待
           timeout 5m single-file "${{ inputs.url }}" "$FILENAME" \
             --browser-executable-path=/usr/bin/google-chrome-stable \
             --browser-script=fix-youtube.js \
