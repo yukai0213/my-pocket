@@ -29,7 +29,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ~/.npm
-          key: ${{ runner.os }}-node-singlefile-v10
+          key: ${{ runner.os }}-node-singlefile-v11
           restore-keys: |
             ${{ runner.os }}-node-
 
@@ -40,20 +40,26 @@ jobs:
       - name: Link SingleFile
         run: npm link single-file-cli
 
-      # --- 步驟 1: 建立「ID 獨佔去重版」YouTube 偽裝腳本 ---
-      - name: Create Dedupe YouTube Faker Script
+      # --- 步驟 1: 建立「V9 斬草除根版」YouTube 偽裝腳本 ---
+      - name: Create Search-Destroy Faker Script
         run: |
           cat <<EOF > fix-youtube.js
           (function() {
-            console.log("🦄 V8 ID 獨佔去重腳本啟動...");
+            console.log("💀 V9 斬草除根腳本啟動...");
 
             function fixYoutube() {
-                // 1. 抓出所有 iframe
+                // 1. 先抓出頁面上所有已經做好的「偽裝播放器」
+                const existingPlayers = document.querySelectorAll('.my-fake-player');
+                const existingIds = new Set();
+                existingPlayers.forEach(p => existingIds.add(p.dataset.videoid));
+
+                // 2. 抓出所有 iframe
                 const iframes = document.querySelectorAll('iframe');
                 
                 iframes.forEach(iframe => {
                     const src = iframe.src || iframe.dataset.src || "";
-                    const isYoutube = src.includes('youtube.com') || src.includes('youtu.be') || src.includes('youtube-nocookie.com');
+                    // 寬鬆匹配
+                    const isYoutube = src.includes('youtube') || src.includes('youtu.be');
                     
                     if (isYoutube) {
                         // 嘗試提取影片 ID
@@ -61,34 +67,37 @@ jobs:
                         const match = src.match(/([a-zA-Z0-9_-]{11})/);
                         if (match) videoId = match[1];
 
-                        // --- V8 關鍵邏輯：檢查是否已經存在該 ID 的偽裝器 ---
-                        const uniqueId = 'fake-player-' + videoId;
-                        const existingPlayer = document.getElementById(uniqueId);
-
-                        if (existingPlayer) {
-                            // 情況 A: 已經做好了，這個 iframe 是多餘的重生怪
-                            console.log("🗑️ 發現重複的 iframe (" + videoId + ")，直接刪除！");
-                            iframe.remove(); // 殺掉它！
+                        // --- V9 核心邏輯：斬草除根 ---
+                        
+                        // 情況 A: 這個影片已經有做好的播放器了
+                        if (existingIds.has(videoId)) {
+                            console.log("💀 發現多餘的 iframe (" + videoId + ")，立刻刪除！");
+                            // 暴力刪除：設定隱藏並從 DOM 移除
+                            iframe.style.display = 'none !important';
+                            iframe.remove();
                             return; 
                         }
 
-                        // 情況 B: 沒做過，開始製作
-                        console.log("✨ 製作新的偽裝器: " + videoId);
+                        // 情況 B: 還沒做過，這是第一個發現的 -> 把它變成播放器
+                        console.log("✨ 製作唯一的偽裝器: " + videoId);
                         
                         const bgImage = (videoId !== "unknown") ? 
                             'url(https://img.youtube.com/vi/' + videoId + '/hqdefault.jpg)' : 
                             'linear-gradient(45deg, #cc0000, #000)';
 
-                        const rect = iframe.getBoundingClientRect();
-                        // 如果 iframe 還沒載入寬高，給個預設值
-                        const width = rect.width > 10 ? rect.width + "px" : "100%";
-                        const height = rect.height > 10 ? rect.height + "px" : "315px";
+                        // 盡量抓原始高度，抓不到就給預設值
+                        let width = iframe.offsetWidth > 10 ? iframe.offsetWidth + "px" : "100%";
+                        let height = iframe.offsetHeight > 10 ? iframe.offsetHeight + "px" : "315px";
                         
+                        // 有時候 iframe 高度是 0 (還沒載入)，強制給個高度
+                        if (parseInt(height) < 100) height = "315px";
+
                         const targetUrl = (videoId !== "unknown") ? 'https://www.youtube.com/watch?v=' + videoId : src;
 
                         // 建立超連結實體按鈕
                         const fakePlayer = document.createElement('a');
-                        fakePlayer.id = uniqueId; // 賦予身分證，防止重複
+                        fakePlayer.className = 'my-fake-player'; // 加上標記
+                        fakePlayer.dataset.videoid = videoId;    // 紀錄 ID
                         fakePlayer.href = targetUrl;
                         fakePlayer.target = "_blank";
                         fakePlayer.rel = "noopener noreferrer";
@@ -96,7 +105,7 @@ jobs:
                         fakePlayer.style.cssText = \`
                             width: \${width};
                             height: \${height};
-                            min-height: 315px; /* 強制最小高度 */
+                            min-height: 315px;
                             background: #000 \${bgImage} center/cover no-repeat;
                             display: flex;
                             align-items: center;
@@ -105,8 +114,8 @@ jobs:
                             border-radius: 8px;
                             position: relative;
                             box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-                            margin: 10px auto;
-                            z-index: 999;
+                            margin: 20px auto;
+                            z-index: 9999;
                         \`;
 
                         fakePlayer.innerHTML = \`
@@ -120,24 +129,25 @@ jobs:
                             </div>
                         \`;
                         
-                        // 替換！
+                        // 替換邏輯：先插新的，再殺舊的
                         if(iframe.parentNode) {
-                            iframe.replaceWith(fakePlayer);
+                            iframe.parentNode.insertBefore(fakePlayer, iframe);
+                            iframe.remove();
+                            // 加入集合，防止下一輪又做一個
+                            existingIds.add(videoId);
                         }
                     }
                 });
             }
 
-            // 暴力掃描：每 200ms 掃一次，掃 100 次 (共 20 秒)
-            // 因為有去重機制，所以掃快一點也沒關係
+            // 暴力掃描：每 100ms 掃一次，瘋狂掃描確保沒有漏網之魚
             let attempts = 0;
             const interval = setInterval(() => {
                 fixYoutube();
                 attempts++;
-                if (attempts > 100) clearInterval(interval);
-            }, 200);
+                if (attempts > 150) clearInterval(interval);
+            }, 100);
             
-            // 強制觸發一次
             fixYoutube();
           })();
           EOF
@@ -150,11 +160,12 @@ jobs:
           
           echo "正在抓取: ${{ inputs.url }}"
           
+          # 增加等待時間到 5000ms，確保我們的腳本有時間殺光 iframe
           timeout 5m single-file "${{ inputs.url }}" "$FILENAME" \
             --browser-executable-path=/usr/bin/google-chrome-stable \
             --browser-script=fix-youtube.js \
             --block-scripts=false \
-            --load-deferred-images-max-idle-time=3000 \
+            --load-deferred-images-max-idle-time=5000 \
             --browser-width=1920 \
             --browser-height=1080 \
             --browser-args='["--no-sandbox", "--disable-setuid-sandbox"]'
