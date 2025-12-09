@@ -9,6 +9,13 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
+
+# --- V6 修正：群組改名，避免跟 Pages 部署打架 ---
+concurrency:
+  group: "save-archiver"
+  cancel-in-progress: false
 
 jobs:
   archive:
@@ -27,7 +34,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ~/.npm
-          key: ${{ runner.os }}-node-singlefile-v6
+          key: ${{ runner.os }}-node-singlefile-v8
           restore-keys: |
             ${{ runner.os }}-node-
 
@@ -38,109 +45,87 @@ jobs:
       - name: Link SingleFile
         run: npm link single-file-cli
 
-      # --- 步驟 1: 建立「YouTube 偽裝術」腳本 ---
-      - name: Create YouTube Faker Script
+      # --- 步驟 1: 建立「超連結實體化」YouTube 偽裝腳本 ---
+      - name: Create Anchor YouTube Faker Script
         run: |
           cat <<EOF > fix-youtube.js
           (function() {
-            console.log("🎨 YouTube 偽裝腳本啟動...");
+            console.log("🔗 V6 實體連結偽裝腳本啟動...");
 
             function fixYoutube() {
                 const iframes = document.querySelectorAll('iframe');
                 iframes.forEach(iframe => {
-                    // 1. 檢查是否處理過
                     if (iframe.dataset.fixed === "true") return;
 
                     const src = iframe.src || iframe.dataset.src || "";
+                    const isYoutube = src.includes('youtube.com') || src.includes('youtu.be') || src.includes('youtube-nocookie.com');
                     
-                    // 2. 精準正則表達式：只抓 YouTube 影片 ID
-                    // (這會過濾掉廣告或其他非影片的 iframe)
-                    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-                    const match = src.match(regExp);
+                    if (isYoutube) {
+                        let videoId = "";
+                        const match = src.match(/([a-zA-Z0-9_-]{11})/);
+                        if (match) videoId = match[1];
 
-                    // 3. 只有當確認是 YouTube 且抓到 ID 時才執行
-                    if (match && match[2].length === 11) {
-                        const videoId = match[2];
-                        console.log("🎯 發現 YouTube 影片 ID: " + videoId);
+                        const bgImage = videoId ? 
+                            'url(https://img.youtube.com/vi/' + videoId + '/hqdefault.jpg)' : 
+                            'linear-gradient(45deg, #cc0000, #000)';
 
-                        // 抓取原本 iframe 的尺寸
                         const rect = iframe.getBoundingClientRect();
                         const width = rect.width > 0 ? rect.width + "px" : "100%";
                         const height = rect.height > 0 ? rect.height + "px" : "315px";
-
-                        // 4. 建立偽裝的播放器 (div)
-                        const fakePlayer = document.createElement('div');
                         
-                        // 設定樣式：背景圖使用 YouTube 官方高畫質縮圖
+                        // 連結目標
+                        const targetUrl = videoId ? 'https://www.youtube.com/watch?v=' + videoId : src;
+
+                        // --- V6 關鍵修改：使用 <a> 標籤取代 div ---
+                        // 這保證了即使腳本失效，連結屬性依然存在
+                        const fakePlayer = document.createElement('a');
+                        fakePlayer.href = targetUrl;
+                        fakePlayer.target = "_blank"; // 強制開新分頁
+                        fakePlayer.rel = "noopener noreferrer"; // 安全性
+                        
+                        // 將樣式直接寫在 style 屬性裡，確保 SingleFile 能夠抓到
                         fakePlayer.style.cssText = \`
                             width: \${width};
                             height: \${height};
-                            background-image: url('https://img.youtube.com/vi/\${videoId}/hqdefault.jpg');
-                            background-size: cover;
-                            background-position: center;
-                            background-repeat: no-repeat;
+                            background: #000 \${bgImage} center/cover no-repeat;
                             display: flex;
                             align-items: center;
                             justify-content: center;
-                            cursor: pointer;
+                            text-decoration: none; /* 去掉底線 */
                             border-radius: 8px;
                             position: relative;
                             box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+                            display: flex;
                         \`;
 
-                        // 5. 加上半透明黑罩和播放按鈕，讓它看起來像影片
+                        // 內部 UI (播放按鈕)
                         fakePlayer.innerHTML = \`
-                            <div style="
-                                width: 100%; height: 100%;
-                                background: rgba(0,0,0,0.4);
-                                display: flex; align-items: center; justify-content: center;
-                                border-radius: 8px;
-                            ">
-                                <div style="
-                                    width: 60px; height: 40px;
-                                    background: red;
-                                    border-radius: 10px;
-                                    display: flex; align-items: center; justify-content: center;
-                                    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-                                ">
-                                    <div style="
-                                        width: 0; height: 0;
-                                        border-top: 8px solid transparent;
-                                        border-bottom: 8px solid transparent;
-                                        border-left: 12px solid white;
-                                        margin-left: 4px;
-                                    "></div>
+                            <div style="background:rgba(0,0,0,0.6);width:100%;height:100%;display:flex;align-items:center;justify-content:center;border-radius:8px;">
+                                <div style="background:red;width:60px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 5px rgba(0,0,0,0.3);">
+                                    <div style="width:0;height:0;border-top:8px solid transparent;border-bottom:8px solid transparent;border-left:12px solid white;margin-left:4px;"></div>
+                                </div>
+                                <div style="position:absolute;bottom:10px;color:white;font-size:12px;background:rgba(0,0,0,0.5);padding:2px 6px;border-radius:4px;font-family:sans-serif;">
+                                    點擊開啟影片
                                 </div>
                             </div>
                         \`;
                         
-                        // 6. 點擊事件：開啟新分頁
-                        fakePlayer.onclick = function(e) {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            // 用 _blank 強制開啟新視窗，解決 Error 153
-                            window.open('https://www.youtube.com/watch?v=' + videoId, '_blank');
-                        };
-
-                        // 7. 替換掉原本的 iframe (殺掉 Error 153 的源頭)
+                        // 替換！
                         if(iframe.parentNode) {
                             iframe.parentNode.replaceChild(fakePlayer, iframe);
-                            // 標記新元素，避免重複處理
                             fakePlayer.dataset.fixed = "true";
                         }
                     }
                 });
             }
 
-            // 持續掃描 30 秒 (應付 Lazy Loading)
             let attempts = 0;
             const interval = setInterval(() => {
                 fixYoutube();
                 attempts++;
-                if (attempts > 60) clearInterval(interval);
+                if (attempts > 90) clearInterval(interval);
             }, 500);
             
-            // 立即執行一次
             fixYoutube();
           })();
           EOF
@@ -157,7 +142,7 @@ jobs:
             --browser-executable-path=/usr/bin/google-chrome-stable \
             --browser-script=fix-youtube.js \
             --block-scripts=false \
-            --load-deferred-images-max-idle-time=2000 \
+            --load-deferred-images-max-idle-time=3000 \
             --browser-width=1920 \
             --browser-height=1080 \
             --browser-args='["--no-sandbox", "--disable-setuid-sandbox"]'
