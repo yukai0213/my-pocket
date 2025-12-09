@@ -49,8 +49,16 @@ jobs:
           echo "正在抓取: ${{ inputs.url }}"
           echo "存檔名稱: $FILENAME"
           
-          # 執行抓取 (設定逾時 3 分鐘避免卡死)
-          timeout 3m single-file "${{ inputs.url }}" "$FILENAME" --browser-executable-path=/usr/bin/google-chrome-stable
+          # --- 關鍵修改 ---
+          # 1. --block-scripts=false : 允許執行 JS (讓 YT 播放器跑出來)
+          # 2. --block-frames=false  : 允許鑲嵌視窗 (保留 YT 的 iframe)
+          # 3. --load-deferred-images-max-idle-time=2000 : 等待懶加載圖片
+          
+          timeout 3m single-file "${{ inputs.url }}" "$FILENAME" \
+            --browser-executable-path=/usr/bin/google-chrome-stable \
+            --block-scripts=false \
+            --block-frames=false \
+            --load-deferred-images-max-idle-time=2000
           
           # 設定 Git 身分並上傳
           git config --global user.name 'GitHub Action Bot'
