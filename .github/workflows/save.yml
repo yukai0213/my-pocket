@@ -27,7 +27,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ~/.npm
-          key: ${{ runner.os }}-node-singlefile-v3
+          key: ${{ runner.os }}-node-singlefile-v5
           restore-keys: |
             ${{ runner.os }}-node-
 
@@ -38,65 +38,74 @@ jobs:
       - name: Link SingleFile
         run: npm link single-file-cli
 
-      # --- 步驟 1: 建立「YouTube 修復器」腳本 ---
-      # 這個腳本會把網頁上所有的 YouTube iframe 替換成靜態封面圖
-      - name: Create YouTube Fixer Script
+      # --- 步驟 1: 建立「連結顯形」腳本 ---
+      - name: Create Link Extractor Script
         run: |
           cat <<EOF > fix-youtube.js
           (function() {
-            console.log("正在執行 YouTube 修復腳本...");
-            const iframes = document.querySelectorAll('iframe');
-            iframes.forEach(iframe => {
-              const src = iframe.src || iframe.dataset.src || "";
-              // 檢查是否為 YouTube 影片
-              const match = src.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
-              
-              if (match && match[1]) {
-                const videoId = match[1];
-                const width = iframe.width || iframe.offsetWidth || "100%";
-                const height = iframe.height || iframe.offsetHeight || "315px";
-                
-                // 建立一個 div 來替換 iframe
-                const replacement = document.createElement('div');
-                replacement.style.width = typeof width === 'number' ? width + 'px' : width;
-                replacement.style.height = typeof height === 'number' ? height + 'px' : height;
-                replacement.style.position = 'relative';
-                replacement.style.backgroundColor = '#000';
-                replacement.style.backgroundImage = 'url(https://img.youtube.com/vi/' + videoId + '/maxresdefault.jpg)';
-                replacement.style.backgroundSize = 'cover';
-                replacement.style.backgroundPosition = 'center';
-                replacement.style.display = 'flex';
-                replacement.style.alignItems = 'center';
-                replacement.style.justifyContent = 'center';
-                replacement.style.cursor = 'pointer';
-                replacement.style.borderRadius = '8px';
-                
-                // 加上播放按鈕圖示
-                const playBtn = document.createElement('div');
-                playBtn.innerHTML = '▶';
-                playBtn.style.color = '#fff';
-                playBtn.style.fontSize = '48px';
-                playBtn.style.textShadow = '0 0 10px rgba(0,0,0,0.5)';
-                playBtn.style.opacity = '0.8';
-                
-                replacement.appendChild(playBtn);
-                
-                // 點擊後打開 YouTube 原始連結
-                replacement.onclick = function() {
-                  window.open('https://www.youtube.com/watch?v=' + videoId, '_blank');
-                };
+            console.log("🔗 連結顯形腳本啟動...");
 
-                // 替換掉原本的 iframe
-                if(iframe.parentNode) {
-                    iframe.parentNode.replaceChild(replacement, iframe);
-                    console.log("已替換 YouTube 影片: " + videoId);
-                }
-              }
-            });
+            function extractLinks() {
+                const iframes = document.querySelectorAll('iframe');
+                iframes.forEach(iframe => {
+                    // 1. 取得網址
+                    const src = iframe.src || iframe.dataset.src || "";
+                    
+                    // 2. 如果已經處理過，或網址是空的，就跳過
+                    if (iframe.dataset.extracted === "true" || !src) return;
+
+                    console.log("發現 iframe: " + src);
+
+                    // 3. 判斷是否為影片 (YouTube)
+                    // (即使不是 YT，我們也把連結顯示出來，寧殺錯不放過)
+                    let isVideo = src.includes("youtube") || src.includes("youtu.be") || src.includes("vimeo");
+                    
+                    // 4. 製作一個超明顯的按鈕
+                    const linkBtn = document.createElement('a');
+                    linkBtn.href = src;
+                    linkBtn.target = "_blank";
+                    linkBtn.style.display = "block";
+                    linkBtn.style.padding = "15px";
+                    linkBtn.style.margin = "10px 0";
+                    linkBtn.style.backgroundColor = isVideo ? "#cc0000" : "#444"; // YT用紅色，其他用灰色
+                    linkBtn.style.color = "#fff";
+                    linkBtn.style.textDecoration = "none";
+                    linkBtn.style.fontWeight = "bold";
+                    linkBtn.style.fontSize = "16px";
+                    linkBtn.style.textAlign = "center";
+                    linkBtn.style.borderRadius = "8px";
+                    linkBtn.style.border = "2px solid white";
+                    linkBtn.style.boxShadow = "0 2px 5px rgba(0,0,0,0.3)";
+                    linkBtn.style.zIndex = "99999"; // 確保在最上層
+                    
+                    // 按鈕文字
+                    linkBtn.innerText = isVideo ? "🎬 偵測到影片，點此開啟連結 (" + src + ")" : "🔗 偵測到外部框架，點此開啟連結";
+
+                    // 5. 插入到 iframe 的「正上方」
+                    // 這樣就算 iframe 是空白的，你也能看到這個按鈕
+                    if(iframe.parentNode) {
+                        iframe.parentNode.insertBefore(linkBtn, iframe);
+                        iframe.dataset.extracted = "true"; // 標記已處理
+                    }
+                });
+            }
+
+            // 每 1 秒掃描一次，持續 30 秒 (應付懶加載)
+            // 這種純 DOM 操作非常輕量，不會當機
+            let attempts = 0;
+            const interval = setInterval(() => {
+                extractLinks();
+                attempts++;
+                if (attempts > 30) clearInterval(interval);
+            }, 1000);
+            
+            // 立即執行一次
+            extractLinks();
+
           })();
           EOF
 
-      # --- 步驟 2: 執行抓取 (掛載修復腳本) ---
+      # --- 步驟 2: 執行抓取 ---
       - name: Save Page
         run: |
           TIMESTAMP=$(date +'%Y%m%d-%H%M%S')
@@ -104,8 +113,7 @@ jobs:
           
           echo "正在抓取: ${{ inputs.url }}"
           
-          # 使用 --browser-script 注入我們寫好的修復腳本
-          timeout 3m single-file "${{ inputs.url }}" "$FILENAME" \
+          timeout 5m single-file "${{ inputs.url }}" "$FILENAME" \
             --browser-executable-path=/usr/bin/google-chrome-stable \
             --browser-script=fix-youtube.js \
             --block-scripts=false \
