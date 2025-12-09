@@ -12,10 +12,9 @@ permissions:
   pages: write
   id-token: write
 
-# --- V6 修正：群組改名，避免跟 Pages 部署打架 ---
-concurrency:
-  group: "save-archiver"
-  cancel-in-progress: false
+# --- V7 修正：移除 concurrency 限制 ---
+# 不管你按幾次，全部都會執行，不會再出現 "Canceled" 紅字錯誤
+# (雖然會比較佔用排隊時間，但視覺上最乾淨)
 
 jobs:
   archive:
@@ -34,7 +33,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ~/.npm
-          key: ${{ runner.os }}-node-singlefile-v8
+          key: ${{ runner.os }}-node-singlefile-v9
           restore-keys: |
             ${{ runner.os }}-node-
 
@@ -45,22 +44,29 @@ jobs:
       - name: Link SingleFile
         run: npm link single-file-cli
 
-      # --- 步驟 1: 建立「超連結實體化」YouTube 偽裝腳本 ---
-      - name: Create Anchor YouTube Faker Script
+      # --- 步驟 1: 建立「防影分身」YouTube 偽裝腳本 ---
+      - name: Create YouTube Faker Script
         run: |
           cat <<EOF > fix-youtube.js
           (function() {
-            console.log("🔗 V6 實體連結偽裝腳本啟動...");
+            console.log("🔧 V7 防影分身修復腳本啟動...");
 
             function fixYoutube() {
                 const iframes = document.querySelectorAll('iframe');
                 iframes.forEach(iframe => {
-                    if (iframe.dataset.fixed === "true") return;
+                    
+                    // --- V7 關鍵修正：鎖定機制 ---
+                    // 1. 如果已經處理過 (fixed=true)，跳過
+                    // 2. 如果正在處理中 (processing=true)，絕對跳過！(防止重複堆疊)
+                    if (iframe.dataset.fixed === "true" || iframe.dataset.processing === "true") return;
 
                     const src = iframe.src || iframe.dataset.src || "";
                     const isYoutube = src.includes('youtube.com') || src.includes('youtu.be') || src.includes('youtube-nocookie.com');
                     
                     if (isYoutube) {
+                        // 立即標記為「處理中」，防止下一個迴圈又來動它
+                        iframe.dataset.processing = "true";
+                        
                         let videoId = "";
                         const match = src.match(/([a-zA-Z0-9_-]{11})/);
                         if (match) videoId = match[1];
@@ -73,17 +79,14 @@ jobs:
                         const width = rect.width > 0 ? rect.width + "px" : "100%";
                         const height = rect.height > 0 ? rect.height + "px" : "315px";
                         
-                        // 連結目標
                         const targetUrl = videoId ? 'https://www.youtube.com/watch?v=' + videoId : src;
 
-                        // --- V6 關鍵修改：使用 <a> 標籤取代 div ---
-                        // 這保證了即使腳本失效，連結屬性依然存在
+                        // 建立超連結實體按鈕
                         const fakePlayer = document.createElement('a');
                         fakePlayer.href = targetUrl;
-                        fakePlayer.target = "_blank"; // 強制開新分頁
-                        fakePlayer.rel = "noopener noreferrer"; // 安全性
+                        fakePlayer.target = "_blank";
+                        fakePlayer.rel = "noopener noreferrer";
                         
-                        // 將樣式直接寫在 style 屬性裡，確保 SingleFile 能夠抓到
                         fakePlayer.style.cssText = \`
                             width: \${width};
                             height: \${height};
@@ -91,14 +94,15 @@ jobs:
                             display: flex;
                             align-items: center;
                             justify-content: center;
-                            text-decoration: none; /* 去掉底線 */
+                            text-decoration: none;
                             border-radius: 8px;
                             position: relative;
                             box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+                            margin: 0 auto; /* 置中 */
                             display: flex;
+                            z-index: 999; /* 確保在最上層 */
                         \`;
 
-                        // 內部 UI (播放按鈕)
                         fakePlayer.innerHTML = \`
                             <div style="background:rgba(0,0,0,0.6);width:100%;height:100%;display:flex;align-items:center;justify-content:center;border-radius:8px;">
                                 <div style="background:red;width:60px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 5px rgba(0,0,0,0.3);">
@@ -113,7 +117,7 @@ jobs:
                         // 替換！
                         if(iframe.parentNode) {
                             iframe.parentNode.replaceChild(fakePlayer, iframe);
-                            fakePlayer.dataset.fixed = "true";
+                            fakePlayer.dataset.fixed = "true"; // 標記為完成
                         }
                     }
                 });
@@ -123,7 +127,7 @@ jobs:
             const interval = setInterval(() => {
                 fixYoutube();
                 attempts++;
-                if (attempts > 90) clearInterval(interval);
+                if (attempts > 60) clearInterval(interval);
             }, 500);
             
             fixYoutube();
