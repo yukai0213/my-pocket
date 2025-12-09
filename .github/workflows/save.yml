@@ -29,7 +29,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ~/.npm
-          key: ${{ runner.os }}-node-singlefile-v11
+          key: ${{ runner.os }}-node-singlefile-v12
           restore-keys: |
             ${{ runner.os }}-node-
 
@@ -40,115 +40,135 @@ jobs:
       - name: Link SingleFile
         run: npm link single-file-cli
 
-      # --- 步驟 1: 建立「V9 斬草除根版」YouTube 偽裝腳本 ---
-      - name: Create Search-Destroy Faker Script
+      # --- 步驟 1: 建立「V10 時空警察版」YouTube 偽裝腳本 ---
+      - name: Create Highlander Faker Script
         run: |
           cat <<EOF > fix-youtube.js
           (function() {
-            console.log("💀 V9 斬草除根腳本啟動...");
+            console.log("⚔️ V10 時空警察腳本啟動：只能留一個！");
 
-            function fixYoutube() {
-                // 1. 先抓出頁面上所有已經做好的「偽裝播放器」
-                const existingPlayers = document.querySelectorAll('.my-fake-player');
-                const existingIds = new Set();
-                existingPlayers.forEach(p => existingIds.add(p.dataset.videoid));
+            function enforceSingleton() {
+                // --- 第一階段：清理門戶 (清除多餘的偽裝器) ---
+                // 1. 抓出所有我們做好的播放器
+                const players = Array.from(document.querySelectorAll('.my-fake-player'));
+                const playerMap = new Map(); // 用來分組: ID -> [元素1, 元素2...]
 
-                // 2. 抓出所有 iframe
+                players.forEach(p => {
+                    const id = p.dataset.videoid;
+                    if (id) {
+                        if (!playerMap.has(id)) playerMap.set(id, []);
+                        playerMap.get(id).push(p);
+                    }
+                });
+
+                // 2. 檢查是否有重複
+                playerMap.forEach((list, id) => {
+                    if (list.length > 1) {
+                        console.log("🔪 發現 " + list.length + " 個重複播放器 (ID: " + id + ")，開始清理...");
+                        
+                        // 策略：保留內容最完整的那一個 (innerHTML 最長的)
+                        // 如果都很短，就保留第一個
+                        list.sort((a, b) => b.innerHTML.length - a.innerHTML.length);
+                        
+                        // 保留 list[0]，刪除其他的
+                        for (let i = 1; i < list.length; i++) {
+                            list[i].remove();
+                            console.log("🗑️ 已刪除多餘播放器");
+                        }
+                    }
+                });
+
+                // --- 第二階段：處理 iframe ---
                 const iframes = document.querySelectorAll('iframe');
-                
                 iframes.forEach(iframe => {
                     const src = iframe.src || iframe.dataset.src || "";
-                    // 寬鬆匹配
-                    const isYoutube = src.includes('youtube') || src.includes('youtu.be');
-                    
-                    if (isYoutube) {
-                        // 嘗試提取影片 ID
-                        let videoId = "unknown";
+                    // 寬鬆匹配 YouTube
+                    if (src.includes('youtube') || src.includes('youtu.be')) {
+                        
+                        // 提取 ID
+                        let videoId = null;
                         const match = src.match(/([a-zA-Z0-9_-]{11})/);
                         if (match) videoId = match[1];
 
-                        // --- V9 核心邏輯：斬草除根 ---
-                        
-                        // 情況 A: 這個影片已經有做好的播放器了
-                        if (existingIds.has(videoId)) {
-                            console.log("💀 發現多餘的 iframe (" + videoId + ")，立刻刪除！");
-                            // 暴力刪除：設定隱藏並從 DOM 移除
-                            iframe.style.display = 'none !important';
-                            iframe.remove();
-                            return; 
-                        }
+                        if (videoId) {
+                            // 檢查：現在是否已經有「活著的」播放器了？
+                            // 這裡我們重新查詢 DOM，確保拿到最新狀態
+                            const existingPlayer = document.querySelector('.my-fake-player[data-videoid="' + videoId + '"]');
 
-                        // 情況 B: 還沒做過，這是第一個發現的 -> 把它變成播放器
-                        console.log("✨ 製作唯一的偽裝器: " + videoId);
-                        
-                        const bgImage = (videoId !== "unknown") ? 
-                            'url(https://img.youtube.com/vi/' + videoId + '/hqdefault.jpg)' : 
-                            'linear-gradient(45deg, #cc0000, #000)';
-
-                        // 盡量抓原始高度，抓不到就給預設值
-                        let width = iframe.offsetWidth > 10 ? iframe.offsetWidth + "px" : "100%";
-                        let height = iframe.offsetHeight > 10 ? iframe.offsetHeight + "px" : "315px";
-                        
-                        // 有時候 iframe 高度是 0 (還沒載入)，強制給個高度
-                        if (parseInt(height) < 100) height = "315px";
-
-                        const targetUrl = (videoId !== "unknown") ? 'https://www.youtube.com/watch?v=' + videoId : src;
-
-                        // 建立超連結實體按鈕
-                        const fakePlayer = document.createElement('a');
-                        fakePlayer.className = 'my-fake-player'; // 加上標記
-                        fakePlayer.dataset.videoid = videoId;    // 紀錄 ID
-                        fakePlayer.href = targetUrl;
-                        fakePlayer.target = "_blank";
-                        fakePlayer.rel = "noopener noreferrer";
-                        
-                        fakePlayer.style.cssText = \`
-                            width: \${width};
-                            height: \${height};
-                            min-height: 315px;
-                            background: #000 \${bgImage} center/cover no-repeat;
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                            text-decoration: none;
-                            border-radius: 8px;
-                            position: relative;
-                            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-                            margin: 20px auto;
-                            z-index: 9999;
-                        \`;
-
-                        fakePlayer.innerHTML = \`
-                            <div style="background:rgba(0,0,0,0.6);width:100%;height:100%;display:flex;align-items:center;justify-content:center;border-radius:8px;">
-                                <div style="background:red;width:60px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 5px rgba(0,0,0,0.3);">
-                                    <div style="width:0;height:0;border-top:8px solid transparent;border-bottom:8px solid transparent;border-left:12px solid white;margin-left:4px;"></div>
-                                </div>
-                                <div style="position:absolute;bottom:10px;color:white;font-size:12px;background:rgba(0,0,0,0.5);padding:2px 6px;border-radius:4px;font-family:sans-serif;">
-                                    點擊開啟影片
-                                </div>
-                            </div>
-                        \`;
-                        
-                        // 替換邏輯：先插新的，再殺舊的
-                        if(iframe.parentNode) {
-                            iframe.parentNode.insertBefore(fakePlayer, iframe);
-                            iframe.remove();
-                            // 加入集合，防止下一輪又做一個
-                            existingIds.add(videoId);
+                            if (existingPlayer) {
+                                // 如果播放器已經存在，這個 iframe 就是多餘的垃圾 -> 刪除
+                                iframe.remove();
+                            } else {
+                                // 如果不存在，才准建立新的
+                                createPlayer(iframe, videoId);
+                            }
                         }
                     }
                 });
             }
 
-            // 暴力掃描：每 100ms 掃一次，瘋狂掃描確保沒有漏網之魚
+            // 建立播放器的函數 (封裝起來)
+            function createPlayer(iframe, videoId) {
+                console.log("✨ 建立唯一播放器: " + videoId);
+                
+                const bgImage = 'url(https://img.youtube.com/vi/' + videoId + '/hqdefault.jpg)';
+                
+                // 抓取尺寸
+                let width = iframe.offsetWidth > 10 ? iframe.offsetWidth + "px" : "100%";
+                let height = iframe.offsetHeight > 10 ? iframe.offsetHeight + "px" : "315px";
+                if (parseInt(height) < 100) height = "315px";
+
+                const targetUrl = 'https://www.youtube.com/watch?v=' + videoId;
+
+                const fakePlayer = document.createElement('a');
+                fakePlayer.className = 'my-fake-player'; // 標記身分
+                fakePlayer.dataset.videoid = videoId;    // 標記 ID
+                fakePlayer.href = targetUrl;
+                fakePlayer.target = "_blank";
+                fakePlayer.rel = "noopener noreferrer";
+                
+                fakePlayer.style.cssText = \`
+                    width: \${width};
+                    height: \${height};
+                    min-height: 315px;
+                    background: #000 \${bgImage} center/cover no-repeat;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    text-decoration: none;
+                    border-radius: 8px;
+                    position: relative;
+                    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+                    margin: 20px auto;
+                    z-index: 9999;
+                \`;
+
+                fakePlayer.innerHTML = \`
+                    <div style="background:rgba(0,0,0,0.6);width:100%;height:100%;display:flex;align-items:center;justify-content:center;border-radius:8px;">
+                        <div style="background:red;width:60px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 5px rgba(0,0,0,0.3);">
+                            <div style="width:0;height:0;border-top:8px solid transparent;border-bottom:8px solid transparent;border-left:12px solid white;margin-left:4px;"></div>
+                        </div>
+                        <div style="position:absolute;bottom:10px;color:white;font-size:12px;background:rgba(0,0,0,0.5);padding:2px 6px;border-radius:4px;font-family:sans-serif;">
+                            點擊開啟影片
+                        </div>
+                    </div>
+                \`;
+                
+                if(iframe.parentNode) {
+                    iframe.parentNode.insertBefore(fakePlayer, iframe);
+                    iframe.remove();
+                }
+            }
+
+            // 執行頻率：每 200ms 檢查一次，確保重複的瞬間被刪除
             let attempts = 0;
             const interval = setInterval(() => {
-                fixYoutube();
+                enforceSingleton();
                 attempts++;
                 if (attempts > 150) clearInterval(interval);
-            }, 100);
+            }, 200);
             
-            fixYoutube();
+            enforceSingleton();
           })();
           EOF
 
@@ -160,7 +180,7 @@ jobs:
           
           echo "正在抓取: ${{ inputs.url }}"
           
-          # 增加等待時間到 5000ms，確保我們的腳本有時間殺光 iframe
+          # 等待時間設定 5000ms，讓清理腳本有時間跑完
           timeout 5m single-file "${{ inputs.url }}" "$FILENAME" \
             --browser-executable-path=/usr/bin/google-chrome-stable \
             --browser-script=fix-youtube.js \
