@@ -27,7 +27,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ~/.npm
-          key: ${{ runner.os }}-node-singlefile-v2
+          key: ${{ runner.os }}-node-singlefile-v3
           restore-keys: |
             ${{ runner.os }}-node-
 
@@ -38,6 +38,65 @@ jobs:
       - name: Link SingleFile
         run: npm link single-file-cli
 
+      # --- 步驟 1: 建立「YouTube 修復器」腳本 ---
+      # 這個腳本會把網頁上所有的 YouTube iframe 替換成靜態封面圖
+      - name: Create YouTube Fixer Script
+        run: |
+          cat <<EOF > fix-youtube.js
+          (function() {
+            console.log("正在執行 YouTube 修復腳本...");
+            const iframes = document.querySelectorAll('iframe');
+            iframes.forEach(iframe => {
+              const src = iframe.src || iframe.dataset.src || "";
+              // 檢查是否為 YouTube 影片
+              const match = src.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
+              
+              if (match && match[1]) {
+                const videoId = match[1];
+                const width = iframe.width || iframe.offsetWidth || "100%";
+                const height = iframe.height || iframe.offsetHeight || "315px";
+                
+                // 建立一個 div 來替換 iframe
+                const replacement = document.createElement('div');
+                replacement.style.width = typeof width === 'number' ? width + 'px' : width;
+                replacement.style.height = typeof height === 'number' ? height + 'px' : height;
+                replacement.style.position = 'relative';
+                replacement.style.backgroundColor = '#000';
+                replacement.style.backgroundImage = 'url(https://img.youtube.com/vi/' + videoId + '/maxresdefault.jpg)';
+                replacement.style.backgroundSize = 'cover';
+                replacement.style.backgroundPosition = 'center';
+                replacement.style.display = 'flex';
+                replacement.style.alignItems = 'center';
+                replacement.style.justifyContent = 'center';
+                replacement.style.cursor = 'pointer';
+                replacement.style.borderRadius = '8px';
+                
+                // 加上播放按鈕圖示
+                const playBtn = document.createElement('div');
+                playBtn.innerHTML = '▶';
+                playBtn.style.color = '#fff';
+                playBtn.style.fontSize = '48px';
+                playBtn.style.textShadow = '0 0 10px rgba(0,0,0,0.5)';
+                playBtn.style.opacity = '0.8';
+                
+                replacement.appendChild(playBtn);
+                
+                // 點擊後打開 YouTube 原始連結
+                replacement.onclick = function() {
+                  window.open('https://www.youtube.com/watch?v=' + videoId, '_blank');
+                };
+
+                // 替換掉原本的 iframe
+                if(iframe.parentNode) {
+                    iframe.parentNode.replaceChild(replacement, iframe);
+                    console.log("已替換 YouTube 影片: " + videoId);
+                }
+              }
+            });
+          })();
+          EOF
+
+      # --- 步驟 2: 執行抓取 (掛載修復腳本) ---
       - name: Save Page
         run: |
           TIMESTAMP=$(date +'%Y%m%d-%H%M%S')
@@ -45,21 +104,15 @@ jobs:
           
           echo "正在抓取: ${{ inputs.url }}"
           
-          # --- V2 修復版：核彈級參數 ---
-          # 1. --disable-web-security : 允許跨域讀取 (CORS)
-          # 2. --disable-features=IsolateOrigins,site-per-process : 關閉網站隔離 (解決 iframe 空白的主因)
-          # 3. --window-size=1920,1080 : 確保視窗夠大，觸發 YouTube 渲染
-          # 4. --remove-hidden-elements=false : 防止 SingleFile 誤刪它以為看不到的內容
-          
+          # 使用 --browser-script 注入我們寫好的修復腳本
           timeout 3m single-file "${{ inputs.url }}" "$FILENAME" \
             --browser-executable-path=/usr/bin/google-chrome-stable \
+            --browser-script=fix-youtube.js \
             --block-scripts=false \
-            --block-frames=false \
-            --remove-hidden-elements=false \
             --load-deferred-images-max-idle-time=2000 \
             --browser-width=1920 \
             --browser-height=1080 \
-            --browser-args='["--no-sandbox", "--disable-setuid-sandbox", "--disable-web-security", "--disable-features=IsolateOrigins,site-per-process", "--window-size=1920,1080"]'
+            --browser-args='["--no-sandbox", "--disable-setuid-sandbox"]'
           
           git config --global user.name 'GitHub Action Bot'
           git config --global user.email 'action@github.com'
