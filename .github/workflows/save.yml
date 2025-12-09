@@ -1,5 +1,4 @@
 name: Save Webpage
-# 設定手動觸發，並要求輸入網址
 on:
   workflow_dispatch:
     inputs:
@@ -23,13 +22,12 @@ jobs:
         with:
           node-version: '18'
 
-      # 優化：快取 npm 套件，讓第二次之後執行變快
       - name: Cache dependencies
         id: cache-npm
         uses: actions/cache@v3
         with:
           path: ~/.npm
-          key: ${{ runner.os }}-node-singlefile
+          key: ${{ runner.os }}-node-singlefile-v2
           restore-keys: |
             ${{ runner.os }}-node-
 
@@ -42,25 +40,27 @@ jobs:
 
       - name: Save Page
         run: |
-          # 設定檔名為：saved-年月日-時分秒.html
           TIMESTAMP=$(date +'%Y%m%d-%H%M%S')
           FILENAME="saved-${TIMESTAMP}.html"
           
           echo "正在抓取: ${{ inputs.url }}"
-          echo "存檔名稱: $FILENAME"
           
-          # --- 關鍵修改 ---
-          # 1. --block-scripts=false : 允許執行 JS (讓 YT 播放器跑出來)
-          # 2. --block-frames=false  : 允許鑲嵌視窗 (保留 YT 的 iframe)
-          # 3. --load-deferred-images-max-idle-time=2000 : 等待懶加載圖片
+          # --- V2 修復版：核彈級參數 ---
+          # 1. --disable-web-security : 允許跨域讀取 (CORS)
+          # 2. --disable-features=IsolateOrigins,site-per-process : 關閉網站隔離 (解決 iframe 空白的主因)
+          # 3. --window-size=1920,1080 : 確保視窗夠大，觸發 YouTube 渲染
+          # 4. --remove-hidden-elements=false : 防止 SingleFile 誤刪它以為看不到的內容
           
           timeout 3m single-file "${{ inputs.url }}" "$FILENAME" \
             --browser-executable-path=/usr/bin/google-chrome-stable \
             --block-scripts=false \
             --block-frames=false \
-            --load-deferred-images-max-idle-time=2000
+            --remove-hidden-elements=false \
+            --load-deferred-images-max-idle-time=2000 \
+            --browser-width=1920 \
+            --browser-height=1080 \
+            --browser-args='["--no-sandbox", "--disable-setuid-sandbox", "--disable-web-security", "--disable-features=IsolateOrigins,site-per-process", "--window-size=1920,1080"]'
           
-          # 設定 Git 身分並上傳
           git config --global user.name 'GitHub Action Bot'
           git config --global user.email 'action@github.com'
           git add "$FILENAME"
