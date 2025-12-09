@@ -27,7 +27,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ~/.npm
-          key: ${{ runner.os }}-node-singlefile-v5
+          key: ${{ runner.os }}-node-singlefile-v6
           restore-keys: |
             ${{ runner.os }}-node-
 
@@ -38,70 +38,110 @@ jobs:
       - name: Link SingleFile
         run: npm link single-file-cli
 
-      # --- 步驟 1: 建立「連結顯形」腳本 ---
-      - name: Create Link Extractor Script
+      # --- 步驟 1: 建立「YouTube 偽裝術」腳本 ---
+      - name: Create YouTube Faker Script
         run: |
           cat <<EOF > fix-youtube.js
           (function() {
-            console.log("🔗 連結顯形腳本啟動...");
+            console.log("🎨 YouTube 偽裝腳本啟動...");
 
-            function extractLinks() {
+            function fixYoutube() {
                 const iframes = document.querySelectorAll('iframe');
                 iframes.forEach(iframe => {
-                    // 1. 取得網址
+                    // 1. 檢查是否處理過
+                    if (iframe.dataset.fixed === "true") return;
+
                     const src = iframe.src || iframe.dataset.src || "";
                     
-                    // 2. 如果已經處理過，或網址是空的，就跳過
-                    if (iframe.dataset.extracted === "true" || !src) return;
+                    // 2. 精準正則表達式：只抓 YouTube 影片 ID
+                    // (這會過濾掉廣告或其他非影片的 iframe)
+                    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+                    const match = src.match(regExp);
 
-                    console.log("發現 iframe: " + src);
+                    // 3. 只有當確認是 YouTube 且抓到 ID 時才執行
+                    if (match && match[2].length === 11) {
+                        const videoId = match[2];
+                        console.log("🎯 發現 YouTube 影片 ID: " + videoId);
 
-                    // 3. 判斷是否為影片 (YouTube)
-                    // (即使不是 YT，我們也把連結顯示出來，寧殺錯不放過)
-                    let isVideo = src.includes("youtube") || src.includes("youtu.be") || src.includes("vimeo");
-                    
-                    // 4. 製作一個超明顯的按鈕
-                    const linkBtn = document.createElement('a');
-                    linkBtn.href = src;
-                    linkBtn.target = "_blank";
-                    linkBtn.style.display = "block";
-                    linkBtn.style.padding = "15px";
-                    linkBtn.style.margin = "10px 0";
-                    linkBtn.style.backgroundColor = isVideo ? "#cc0000" : "#444"; // YT用紅色，其他用灰色
-                    linkBtn.style.color = "#fff";
-                    linkBtn.style.textDecoration = "none";
-                    linkBtn.style.fontWeight = "bold";
-                    linkBtn.style.fontSize = "16px";
-                    linkBtn.style.textAlign = "center";
-                    linkBtn.style.borderRadius = "8px";
-                    linkBtn.style.border = "2px solid white";
-                    linkBtn.style.boxShadow = "0 2px 5px rgba(0,0,0,0.3)";
-                    linkBtn.style.zIndex = "99999"; // 確保在最上層
-                    
-                    // 按鈕文字
-                    linkBtn.innerText = isVideo ? "🎬 偵測到影片，點此開啟連結 (" + src + ")" : "🔗 偵測到外部框架，點此開啟連結";
+                        // 抓取原本 iframe 的尺寸
+                        const rect = iframe.getBoundingClientRect();
+                        const width = rect.width > 0 ? rect.width + "px" : "100%";
+                        const height = rect.height > 0 ? rect.height + "px" : "315px";
 
-                    // 5. 插入到 iframe 的「正上方」
-                    // 這樣就算 iframe 是空白的，你也能看到這個按鈕
-                    if(iframe.parentNode) {
-                        iframe.parentNode.insertBefore(linkBtn, iframe);
-                        iframe.dataset.extracted = "true"; // 標記已處理
+                        // 4. 建立偽裝的播放器 (div)
+                        const fakePlayer = document.createElement('div');
+                        
+                        // 設定樣式：背景圖使用 YouTube 官方高畫質縮圖
+                        fakePlayer.style.cssText = \`
+                            width: \${width};
+                            height: \${height};
+                            background-image: url('https://img.youtube.com/vi/\${videoId}/hqdefault.jpg');
+                            background-size: cover;
+                            background-position: center;
+                            background-repeat: no-repeat;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            cursor: pointer;
+                            border-radius: 8px;
+                            position: relative;
+                            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+                        \`;
+
+                        // 5. 加上半透明黑罩和播放按鈕，讓它看起來像影片
+                        fakePlayer.innerHTML = \`
+                            <div style="
+                                width: 100%; height: 100%;
+                                background: rgba(0,0,0,0.4);
+                                display: flex; align-items: center; justify-content: center;
+                                border-radius: 8px;
+                            ">
+                                <div style="
+                                    width: 60px; height: 40px;
+                                    background: red;
+                                    border-radius: 10px;
+                                    display: flex; align-items: center; justify-content: center;
+                                    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                                ">
+                                    <div style="
+                                        width: 0; height: 0;
+                                        border-top: 8px solid transparent;
+                                        border-bottom: 8px solid transparent;
+                                        border-left: 12px solid white;
+                                        margin-left: 4px;
+                                    "></div>
+                                </div>
+                            </div>
+                        \`;
+                        
+                        // 6. 點擊事件：開啟新分頁
+                        fakePlayer.onclick = function(e) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            // 用 _blank 強制開啟新視窗，解決 Error 153
+                            window.open('https://www.youtube.com/watch?v=' + videoId, '_blank');
+                        };
+
+                        // 7. 替換掉原本的 iframe (殺掉 Error 153 的源頭)
+                        if(iframe.parentNode) {
+                            iframe.parentNode.replaceChild(fakePlayer, iframe);
+                            // 標記新元素，避免重複處理
+                            fakePlayer.dataset.fixed = "true";
+                        }
                     }
                 });
             }
 
-            // 每 1 秒掃描一次，持續 30 秒 (應付懶加載)
-            // 這種純 DOM 操作非常輕量，不會當機
+            // 持續掃描 30 秒 (應付 Lazy Loading)
             let attempts = 0;
             const interval = setInterval(() => {
-                extractLinks();
+                fixYoutube();
                 attempts++;
-                if (attempts > 30) clearInterval(interval);
-            }, 1000);
+                if (attempts > 60) clearInterval(interval);
+            }, 500);
             
             // 立即執行一次
-            extractLinks();
-
+            fixYoutube();
           })();
           EOF
 
