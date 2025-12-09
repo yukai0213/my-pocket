@@ -29,7 +29,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ~/.npm
-          key: ${{ runner.os }}-node-singlefile-v16
+          key: ${{ runner.os }}-node-singlefile-v17
           restore-keys: |
             ${{ runner.os }}-node-
 
@@ -40,139 +40,81 @@ jobs:
       - name: Link SingleFile
         run: npm link single-file-cli
 
-      # --- 步驟 1: 建立「V16 萬用版」修復腳本 ---
-      - name: Create Universal Faker Script
+      # --- 步驟 1: 建立「V17 非破壞性標註」修復腳本 ---
+      - name: Create Non-Destructive Script
         run: |
           cat <<EOF > fix-youtube.js
           (function() {
-            console.log("🌐 V16 萬用修復版：啟動");
+            console.log("🏷️ V17 非破壞性標註版：啟動");
 
-            function fixIframes() {
+            function patchIframes() {
                 const iframes = document.querySelectorAll('iframe');
                 
                 iframes.forEach(iframe => {
-                    const src = iframe.src || iframe.dataset.src || "";
-                    if (!src) return; // 沒網址的不管
+                    // --- 核心防重機制：直接檢查 iframe 身上有沒有標籤 ---
+                    if (iframe.dataset.patched === "true") return;
 
-                    // --- 判斷 1: 是不是 YouTube? (VIP 待遇) ---
-                    if (src.includes('youtube') || src.includes('youtu.be')) {
-                        handleYoutube(iframe, src);
-                    } 
-                    // --- 判斷 2: 其他所有 iframe (通用待遇) ---
-                    else {
-                        handleGeneric(iframe, src);
+                    const src = iframe.src || iframe.dataset.src || "";
+                    if (!src) return;
+
+                    // 這裡我們做寬鬆判定，只要是 iframe 都給它一個連結按鈕
+                    // 因為有些影片不一定是 YouTube，可能是 Vimeo 或其他
+                    // 我們統一提供「原始連結」
+                    
+                    console.log("🔧 標註 iframe: " + src);
+
+                    // 1. 建立按鈕
+                    const linkBtn = document.createElement('a');
+                    linkBtn.href = src;
+                    linkBtn.target = "_blank";
+                    linkBtn.rel = "noopener noreferrer";
+                    
+                    // 根據是否為 YouTube 給予不同顏色提示
+                    const isYoutube = src.includes('youtube') || src.includes('youtu.be');
+                    const btnText = isYoutube ? "📺 YouTube 影片 (點此開啟)" : "🔗 外部嵌入內容 (點此開啟)";
+                    const btnColor = isYoutube ? "#d32f2f" : "#555";
+
+                    linkBtn.innerText = btnText;
+                    
+                    // 樣式：簡單、乾淨、不干擾排版
+                    linkBtn.style.cssText = \`
+                        display: block;
+                        background-color: \${btnColor};
+                        color: white;
+                        padding: 12px 20px;
+                        margin: 10px 0;
+                        text-align: center;
+                        text-decoration: none;
+                        font-weight: bold;
+                        border-radius: 6px;
+                        font-family: sans-serif;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                    \`;
+
+                    // 2. 插入按鈕 (在 iframe 前面)
+                    if(iframe.parentNode) {
+                        iframe.parentNode.insertBefore(linkBtn, iframe);
+                        
+                        // 3. 隱藏 iframe (但不刪除！防止網頁再生)
+                        iframe.style.display = 'none';
+                        
+                        // 4. 打上標記 (這是最重要的！)
+                        iframe.dataset.patched = "true";
                     }
                 });
             }
 
-            // --- 處理 YouTube (圖文分離模式) ---
-            function handleYoutube(iframe, src) {
-                const match = src.match(/([a-zA-Z0-9_-]{11})/);
-                const videoId = match ? match[1] : null;
-                if (!videoId) return handleGeneric(iframe, src); // 抓不到 ID 就降級處理
-
-                // 防重檢查
-                const prev = iframe.previousElementSibling;
-                if (prev && prev.classList.contains('my-yt-container')) {
-                    iframe.style.display = 'none';
-                    return;
-                }
-
-                console.log("✨ YouTube 優化: " + videoId);
-
-                const bgImage = 'url(https://img.youtube.com/vi/' + videoId + '/hqdefault.jpg)';
-                const targetUrl = 'https://www.youtube.com/watch?v=' + videoId;
-                let width = iframe.offsetWidth > 10 ? iframe.offsetWidth + "px" : "100%";
-
-                // 建立容器
-                const container = document.createElement('div');
-                container.className = 'my-yt-container';
-                container.style.cssText = \`
-                    width: \${width};
-                    margin: 20px auto;
-                    font-family: sans-serif;
-                    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-                    border-radius: 8px;
-                    overflow: hidden;
-                    background: #f0f0f0;
-                \`;
-
-                // 圖片區
-                const imgDiv = document.createElement('div');
-                imgDiv.style.cssText = \`
-                    width: 100%;
-                    height: 315px;
-                    background: #000 \${bgImage} center/cover no-repeat;
-                    border-bottom: 1px solid #ddd;
-                \`;
-
-                // 按鈕區
-                const btnArea = document.createElement('div');
-                btnArea.style.cssText = 'padding:15px;text-align:center;background:#fff;';
-                
-                const linkBtn = document.createElement('a');
-                linkBtn.href = targetUrl;
-                linkBtn.target = "_blank";
-                linkBtn.innerText = "📺 點擊前往 YouTube 觀看影片";
-                linkBtn.style.cssText = 'display:inline-block;background-color:#cc0000;color:white;padding:10px 20px;border-radius:5px;text-decoration:none;font-weight:bold;';
-
-                btnArea.appendChild(linkBtn);
-                container.appendChild(imgDiv);
-                container.appendChild(btnArea);
-
-                if(iframe.parentNode) {
-                    iframe.parentNode.insertBefore(container, iframe);
-                    iframe.style.display = 'none';
-                }
-            }
-
-            // --- 處理 通用 iframe (保留原樣 + 頂部按鈕) ---
-            function handleGeneric(iframe, src) {
-                // 防重檢查：看頭頂上有沒有按鈕
-                const prev = iframe.previousElementSibling;
-                if (prev && prev.classList.contains('my-generic-link')) {
-                    return; // 已經加過按鈕了，跳過
-                }
-
-                console.log("🔗 通用 iframe 補強: " + src);
-
-                // 建立一個簡單的連結條
-                const linkBar = document.createElement('a');
-                linkBar.className = 'my-generic-link'; // 標記
-                linkBar.href = src;
-                linkBar.target = "_blank";
-                linkBar.innerText = "🔗 無法預覽內容？點此開啟原始連結";
-                
-                // 樣式：像是一個小標籤貼在 iframe 頭頂
-                linkBar.style.cssText = \`
-                    display: block;
-                    background-color: #444;
-                    color: #fff;
-                    padding: 8px 15px;
-                    font-size: 14px;
-                    text-decoration: none;
-                    text-align: center;
-                    border-radius: 4px;
-                    margin-bottom: 5px;
-                    font-family: sans-serif;
-                    opacity: 0.9;
-                \`;
-
-                // 插入在 iframe 前面 (不刪除 iframe！)
-                if(iframe.parentNode) {
-                    iframe.parentNode.insertBefore(linkBar, iframe);
-                }
-            }
-
-            // 掃描機制
+            // 溫和掃描：每 1 秒檢查一次，持續 15 秒
+            // 因為我們不刪除元素，所以網頁不會一直「反抗」，掃描頻率可以降低
             let attempts = 0;
             const interval = setInterval(() => {
-                fixIframes();
+                patchIframes();
                 attempts++;
-                if (attempts > 40) clearInterval(interval);
-            }, 500);
+                if (attempts > 15) clearInterval(interval);
+            }, 1000);
             
-            fixIframes();
+            // 立即執行一次
+            patchIframes();
           })();
           EOF
 
@@ -184,7 +126,7 @@ jobs:
           
           echo "正在抓取: ${{ inputs.url }}"
           
-          # 3000ms 等待
+          # 3000ms 等待即可
           timeout 5m single-file "${{ inputs.url }}" "$FILENAME" \
             --browser-executable-path=/usr/bin/google-chrome-stable \
             --browser-script=fix-youtube.js \
