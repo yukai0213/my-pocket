@@ -29,7 +29,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ~/.npm
-          key: ${{ runner.os }}-node-singlefile-v14
+          key: ${{ runner.os }}-node-singlefile-v15
           restore-keys: |
             ${{ runner.os }}-node-
 
@@ -40,12 +40,12 @@ jobs:
       - name: Link SingleFile
         run: npm link single-file-cli
 
-      # --- 步驟 1: 建立「V14 隱身術」YouTube 偽裝腳本 ---
-      - name: Create Stealth Faker Script
+      # --- 步驟 1: 建立「V15 圖文分離」YouTube 修復腳本 ---
+      - name: Create Split-Layout Faker Script
         run: |
           cat <<EOF > fix-youtube.js
           (function() {
-            console.log("👻 V14 隱身術腳本啟動：只隱藏，不刪除");
+            console.log("🖼️ V15 圖文分離版：啟動");
 
             function fixYoutube() {
                 const iframes = document.querySelectorAll('iframe');
@@ -61,73 +61,93 @@ jobs:
                     const videoId = match ? match[1] : null;
                     if (!videoId) return;
 
-                    // --- V14 關鍵邏輯：檢查「前一個兄弟」是否已經是我們的播放器 ---
+                    // --- V15 關鍵防重邏輯 ---
+                    // 檢查：這個 iframe 的「前一個鄰居」是不是已經是我們做好的容器？
                     const prev = iframe.previousElementSibling;
-                    if (prev && prev.classList.contains('my-fake-player')) {
-                        // 已經做過了！確保 iframe 是隱藏的，然後收工
+                    if (prev && prev.classList.contains('my-yt-container')) {
+                        // 已經做過了！
+                        // 確保 iframe 是隱藏的，然後離開
                         iframe.style.display = 'none';
                         return;
                     }
 
-                    console.log("✨ 為 iframe 製作偽裝面具: " + videoId);
+                    console.log("✨ 製作圖文分離區塊: " + videoId);
 
-                    // 準備參數
+                    // 準備素材
                     const bgImage = 'url(https://img.youtube.com/vi/' + videoId + '/hqdefault.jpg)';
-                    // 寬高盡量抓，抓不到給預設
-                    let width = iframe.offsetWidth > 10 ? iframe.offsetWidth + "px" : "100%";
-                    let height = iframe.offsetHeight > 10 ? iframe.offsetHeight + "px" : "315px";
-                    if (parseInt(height) < 100) height = "315px";
-
                     const targetUrl = 'https://www.youtube.com/watch?v=' + videoId;
-
-                    // 製作播放器 (這就是你要的漂亮樣式)
-                    const fakePlayer = document.createElement('a');
-                    fakePlayer.className = 'my-fake-player'; // 標記身分
-                    fakePlayer.href = targetUrl;
-                    fakePlayer.target = "_blank";
-                    fakePlayer.rel = "noopener noreferrer";
                     
-                    fakePlayer.style.cssText = \`
+                    // 抓取寬度 (高度不重要了，因為我們會自己撐開)
+                    let width = iframe.offsetWidth > 10 ? iframe.offsetWidth + "px" : "100%";
+
+                    // --- 建立主容器 ---
+                    const container = document.createElement('div');
+                    container.className = 'my-yt-container'; // 標記身分
+                    container.style.cssText = \`
                         width: \${width};
-                        height: \${height};
-                        min-height: 315px;
-                        background: #000 \${bgImage} center/cover no-repeat;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        text-decoration: none;
-                        border-radius: 8px;
-                        position: relative;
-                        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
                         margin: 20px auto;
-                        z-index: 9999;
+                        font-family: sans-serif;
+                        box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+                        border-radius: 8px;
+                        overflow: hidden;
+                        background: #f0f0f0;
                     \`;
 
-                    fakePlayer.innerHTML = \`
-                        <div style="background:rgba(0,0,0,0.6);width:100%;height:100%;display:flex;align-items:center;justify-content:center;border-radius:8px;">
-                            <div style="background:red;width:60px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 5px rgba(0,0,0,0.3);">
-                                <div style="width:0;height:0;border-top:8px solid transparent;border-bottom:8px solid transparent;border-left:12px solid white;margin-left:4px;"></div>
-                            </div>
-                            <div style="position:absolute;bottom:10px;color:white;font-size:12px;background:rgba(0,0,0,0.5);padding:2px 6px;border-radius:4px;font-family:sans-serif;">
-                                點擊開啟影片
-                            </div>
-                        </div>
+                    // --- A. 上方：純圖片區 (不可點) ---
+                    const imgDiv = document.createElement('div');
+                    imgDiv.style.cssText = \`
+                        width: 100%;
+                        height: 315px; /* 固定高度比較整齊 */
+                        background: #000 \${bgImage} center/cover no-repeat;
+                        border-bottom: 1px solid #ddd;
                     \`;
-                    
-                    // --- 關鍵操作：插入前面，隱藏本體 (不刪除！) ---
+
+                    // --- B. 下方：按鈕區 (連結) ---
+                    const btnArea = document.createElement('div');
+                    btnArea.style.cssText = \`
+                        padding: 15px;
+                        text-align: center;
+                        background: #fff;
+                    \`;
+
+                    const linkBtn = document.createElement('a');
+                    linkBtn.href = targetUrl;
+                    linkBtn.target = "_blank";
+                    linkBtn.rel = "noopener noreferrer";
+                    linkBtn.innerText = "📺 點擊前往 YouTube 觀看影片";
+                    linkBtn.style.cssText = \`
+                        display: inline-block;
+                        background-color: #cc0000;
+                        color: white;
+                        padding: 10px 20px;
+                        border-radius: 5px;
+                        text-decoration: none;
+                        font-weight: bold;
+                        font-size: 16px;
+                    \`;
+
+                    // 組裝
+                    btnArea.appendChild(linkBtn);
+                    container.appendChild(imgDiv);
+                    container.appendChild(btnArea);
+
+                    // --- 插入與隱藏 ---
                     if(iframe.parentNode) {
-                        iframe.parentNode.insertBefore(fakePlayer, iframe);
-                        iframe.style.display = 'none'; // 隱藏原本的 iframe
+                        // 插在 iframe 前面
+                        iframe.parentNode.insertBefore(container, iframe);
+                        // 隱藏 iframe
+                        iframe.style.display = 'none';
                     }
                 });
             }
 
-            // 簡單的掃描機制 (不像之前那麼暴力)
+            // 掃描機制：每 500ms 檢查一次，持續 20 秒
+            // 因為有 "previousElementSibling" 的檢查，重複掃描也不會重複生
             let attempts = 0;
             const interval = setInterval(() => {
                 fixYoutube();
                 attempts++;
-                if (attempts > 50) clearInterval(interval);
+                if (attempts > 40) clearInterval(interval);
             }, 500);
             
             fixYoutube();
@@ -142,7 +162,7 @@ jobs:
           
           echo "正在抓取: ${{ inputs.url }}"
           
-          # 這裡不需要太長的等待了，因為不會觸發重生
+          # 恢復為 3000ms 等待，這對大部分網頁夠用了
           timeout 5m single-file "${{ inputs.url }}" "$FILENAME" \
             --browser-executable-path=/usr/bin/google-chrome-stable \
             --browser-script=fix-youtube.js \
