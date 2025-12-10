@@ -1,6 +1,6 @@
 
         (function() {
-            console.log("Local Archiver V50 Running (AdBlock Mode)...");
+            console.log("Local Archiver V50 Running...");
             window.scrollBy(0, 100); setTimeout(() => window.scrollBy(0, -100), 500);
             
             function queryAllDeep(selector, root = document) {
@@ -14,16 +14,10 @@
 
             function fixAll() {
                 const targets = [...queryAllDeep('iframe'), ...queryAllDeep('video')];
-                
-                // --- 定義廣告關鍵字黑名單 ---
-                const blockedKeywords = [
-                    'googlesyndication', 'doubleclick', 'googleads', 
-                    'safeframe', 'adservice', 'adnxs', 'ads', 'ad-' 
-                ];
+                const blockedKeywords = ['googlesyndication', 'doubleclick', 'googleads', 'safeframe', 'adservice', 'adnxs', 'ads', 'ad-'];
 
                 targets.forEach(el => {
                     if(el.dataset.patched === "true") return;
-                    
                     let tagName = el.tagName.toLowerCase();
                     let src = "";
                     if (tagName === 'iframe') src = el.src || el.dataset.src || "";
@@ -31,13 +25,7 @@
 
                     if(!src || src === "about:blank") return;
                     if(el.offsetWidth < 30) return;
-
-                    // --- V50 關鍵：檢查是否為廣告 ---
-                    // 如果網址包含黑名單關鍵字，直接跳過，不處理，不變按鈕
-                    if (blockedKeywords.some(keyword => src.includes(keyword))) {
-                        console.log("🚫 封鎖廣告:", src);
-                        return; 
-                    }
+                    if (blockedKeywords.some(keyword => src.includes(keyword))) return;
 
                     let bg='rgba(0,0,0,0.8)', icon='🔗', txt='開啟內容', col='#007bff', url=src;
                     
@@ -48,8 +36,7 @@
                         let m = src.match(/video\/(\d+)/);
                         if(m) { bg='url(https://vumbnail.com/'+m[1]+'.jpg)'; col='#1ab7ea'; icon='▶'; txt='Vimeo'; url='https://vimeo.com/'+m[1]; }
                     } else if(tagName === 'video') {
-                        icon='🎬'; txt='原始檔'; col='#28a745';
-                        bg = 'rgba(0,0,0,0.5)';
+                        icon='🎬'; txt='原始檔'; col='#28a745'; bg = 'rgba(0,0,0,0.5)';
                     }
 
                     let parentLink = el.closest('a');
@@ -64,7 +51,6 @@
                     card.href = url;
                     card.target = "_blank";
                     card.rel = "noopener noreferrer";
-                    
                     card.style.cssText = `position:absolute;top:0;left:0;width:100%;height:100%;background:${bg} center/cover no-repeat;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:2147483647 !important;cursor:pointer;border:2px solid ${col};box-sizing:border-box;border-radius:inherit;text-decoration:none;`;
                     card.innerHTML = `<div style="background:rgba(0,0,0,0.7);padding:5px 15px;border-radius:20px;text-align:center;color:white;font-weight:bold;font-size:14px;box-shadow:0 2px 5px rgba(0,0,0,0.5);">${icon} ${txt}</div>`;
                     
