@@ -12,8 +12,8 @@ permissions:
   pages: write
   id-token: write
 
-# 移除 concurrency 設定，改用佇列模式，避免取消舊任務
-# 這樣你連續按幾次，它就會排隊跑幾次
+# 移除 concurrency，允許任務排隊執行，不取消舊任務
+# 這樣你可以連續按好幾次 Save
 
 jobs:
   archive:
@@ -22,7 +22,7 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0 # 抓取完整歷史，為了後面的同步合併
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v3
@@ -34,7 +34,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ~/.npm
-          key: ${{ runner.os }}-node-singlefile-v43
+          key: ${{ runner.os }}-node-singlefile-v44
           restore-keys: |
             ${{ runner.os }}-node-
 
@@ -45,98 +45,165 @@ jobs:
       - name: Link SingleFile
         run: npm link single-file-cli
 
-      # --- 步驟 1: 建立「V43 原生復原版」腳本 ---
-      # 這個腳本不做任何外觀替換，只負責把 "相對路徑" 修復成 "絕對路徑"
-      - name: Create Native Restore Script
+      # --- 步驟 1: 建立「V44 終極跳轉版」腳本 ---
+      - name: Create V44 Script
         run: |
           cat <<EOF > fix-youtube.js
           (function() {
-            console.log("♻️ V43 原生復原版：啟動 (只修連結，不動結構)");
+            console.log("🚀 V44 終極跳轉版：啟動 (Absolute Div + Click Handler)");
 
-            // 1. 主動捲動頁面，觸發懶加載元素出現
+            // 1. 觸發懶加載
             window.scrollBy(0, 100);
             setTimeout(() => window.scrollBy(0, -100), 500);
 
-            // 輔助函式：把相對路徑 (e.g. /video.mp4) 轉成 絕對路徑 (e.g. https://site.com/video.mp4)
-            function toAbsolute(url) {
-                if (!url) return "";
-                if (url.startsWith('http')) return url; // 已經是絕對路徑
-                if (url.startsWith('//')) return 'https:' + url; // 修正 // 開頭
-                
-                try {
-                    // 使用瀏覽器內建 URL 物件計算完整路徑
-                    return new URL(url, document.baseURI).href;
-                } catch (e) {
-                    return url;
+            // 輔助：穿透 Shadow DOM 搜尋元素
+            function queryAllDeep(selector, root = document) {
+                let elements = Array.from(root.querySelectorAll(selector));
+                const hosts = Array.from(root.querySelectorAll('*')).filter(e => e.shadowRoot);
+                for (const host of hosts) {
+                    elements = elements.concat(queryAllDeep(selector, host.shadowRoot));
                 }
+                return elements;
             }
 
-            function restoreAll() {
-                // --- A. 處理 HTML5 <video> (Wondershare 首頁主要是這個) ---
-                const videos = document.querySelectorAll('video');
-                videos.forEach(video => {
-                    // 如果已經處理過，跳過
-                    if (video.dataset.fixed === "true") return;
-
-                    // 抓取影片來源 (優先抓 currentSrc，沒有則抓 src 或 source 標籤)
-                    let src = video.currentSrc || video.src || "";
-                    if (!src) {
-                        const source = video.querySelector('source');
-                        if (source) src = source.src;
+            function fixAll() {
+                // 搜尋所有 iframe 和 video
+                const targets = [...queryAllDeep('iframe'), ...queryAllDeep('video')];
+                
+                targets.forEach(el => {
+                    const tagName = el.tagName.toLowerCase();
+                    let src = "";
+                    
+                    // 抓取網址
+                    if (tagName === 'iframe') {
+                        src = el.src || el.dataset.src || el.dataset.original || "";
+                    } else if (tagName === 'video') {
+                        src = el.currentSrc || el.src || (el.querySelector('source') ? el.querySelector('source').src : "");
                     }
 
-                    if (src) {
-                        // 1. 計算絕對路徑 (這是最關鍵的一步)
-                        // 這樣存檔後，本機 HTML 才知道去哪裡抓影片
-                        const absoluteSrc = toAbsolute(src);
+                    // 過濾無效元素
+                    if (!src || src === "about:blank") return;
+                    if (el.offsetWidth < 30 || el.offsetHeight < 30) return; // 太小的忽略
+                    
+                    // 防重機制：檢查是否已經處理過
+                    // 我們檢查父容器裡面是否已經有我們的 card 了
+                    if (el.parentNode.querySelector('.my-fix-card')) return;
+
+                    // 準備按鈕樣式資料
+                    let type = "other";
+                    let videoId = null;
+                    let bgImage = '';
+                    let bgColor = '#222';
+                    let btnText = "點擊開啟 外部內容";
+                    let btnIcon = "🔗";
+                    let btnColor = "#007bff"; // 藍色
+                    let linkUrl = src;
+
+                    // 判斷類型
+                    if (src.includes('youtube') || src.includes('youtu.be')) {
+                        type = "youtube";
+                        const match = src.match(/([a-zA-Z0-9_-]{11})/);
+                        if (match) videoId = match[1];
+                    } else if (src.includes('vimeo.com')) {
+                        type = "vimeo";
+                        const match = src.match(/video\/(\d+)/);
+                        if (match) videoId = match[1];
+                    }
+
+                    // 設定對應樣式
+                    if (type === "youtube" && videoId) {
+                        bgImage = 'url(https://img.youtube.com/vi/' + videoId + '/hqdefault.jpg)';
+                        bgColor = '#000';
+                        btnText = "點擊開啟 YouTube";
+                        btnIcon = "▶";
+                        btnColor = "#cc0000"; // 紅色
+                        linkUrl = 'https://www.youtube.com/watch?v=' + videoId;
+                    } else if (type === "vimeo" && videoId) {
+                        bgImage = 'url(https://vumbnail.com/' + videoId + '.jpg)';
+                        bgColor = '#000';
+                        btnText = "點擊開啟 Vimeo";
+                        btnIcon = "▶";
+                        btnColor = "#1ab7ea"; // 藍色
+                        linkUrl = 'https://vimeo.com/' + videoId;
+                    } else if (tagName === 'video') {
+                        // 修正相對路徑為絕對路徑
+                        try { linkUrl = new URL(src, document.baseURI).href; } catch(e) {}
                         
-                        if (absoluteSrc !== src) {
-                            console.log("🔧 修復 Video 連結: " + absoluteSrc);
-                            video.src = absoluteSrc;
+                        btnText = "下載/播放 原始檔";
+                        btnIcon = "🎬";
+                        btnColor = "#28a745"; // 綠色
+                    }
+
+                    // 製作卡片 (使用 DIV 避免巢狀連結錯誤)
+                    const card = document.createElement('div');
+                    card.className = 'my-fix-card';
+                    
+                    // 點擊事件 (強制開新視窗)
+                    card.onclick = function(e) {
+                        e.preventDefault();
+                        e.stopPropagation(); // 阻止事件冒泡，防止觸發外層連結
+                        window.open(linkUrl, '_blank');
+                    };
+                    
+                    card.style.cursor = 'pointer';
+
+                    // 樣式：絕對定位覆蓋 (最穩定的排版方式)
+                    card.style.cssText = \`
+                        position: absolute;
+                        top: 0;
+                        left: 0;
+                        width: 100%;
+                        height: 100%;
+                        background-color: \${bgColor};
+                        background-image: \${bgImage};
+                        background-position: center;
+                        background-size: cover;
+                        background-repeat: no-repeat;
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                        justify-content: center;
+                        z-index: 10; /* 確保浮在最上層，保證可點 */
+                        border-radius: inherit; /* 跟隨父容器圓角 */
+                        box-sizing: border-box;
+                        border: 2px solid \${btnColor};
+                    \`;
+
+                    card.innerHTML = \`
+                        <div style="background: rgba(0,0,0,0.7); width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: inherit;">
+                            <div style="font-size: 32px; margin-bottom: 5px;">\${btnIcon}</div>
+                            <div style="background-color: \${btnColor}; color: white; padding: 5px 15px; border-radius: 20px; font-weight: bold; font-size: 14px; box-shadow: 0 2px 5px rgba(0,0,0,0.5); text-align: center;">
+                                \${btnText}
+                            </div>
+                        </div>
+                    \`;
+
+                    // 執行替換
+                    if(el.parentNode) {
+                        // 確保父容器有定位屬性
+                        const parentStyle = window.getComputedStyle(el.parentNode);
+                        if (parentStyle.position === 'static') {
+                            el.parentNode.style.position = 'relative';
                         }
 
-                        // 2. 強制設定自動播放屬性
-                        // 瀏覽器規定：要自動播放(autoplay)必須同時靜音(muted)
-                        video.muted = true;
-                        video.autoplay = true;
-                        video.loop = true;     // 讓它循環播放，像背景一樣
-                        video.playsInline = true; // 手機版不要全螢幕
-                        video.controls = true; // 加上控制條 (保險起見，讓你下載後能手動點)
-
-                        video.dataset.fixed = "true";
+                        // 插入卡片
+                        el.parentNode.insertBefore(card, el);
+                        
+                        // 移除原本的影片 (避免它在背景偷偷播放或佔資源)
+                        el.remove();
                     }
-                });
-
-                // --- B. 處理 iframe (YouTube/Vimeo) ---
-                const iframes = document.querySelectorAll('iframe');
-                iframes.forEach(iframe => {
-                    if (iframe.dataset.fixed === "true") return;
-
-                    let src = iframe.src || iframe.dataset.src || "";
-                    
-                    // 如果 iframe 是相對路徑，也幫它修好
-                    if (src && !src.startsWith('http') && !src.startsWith('data:')) {
-                        const absoluteSrc = toAbsolute(src);
-                        console.log("🔧 修復 Iframe 連結: " + absoluteSrc);
-                        iframe.src = absoluteSrc;
-                    }
-                    
-                    // 這裡我們完全不動 iframe 的樣式和位置
-                    // 讓它保持原樣，SingleFile 會盡力去存
-                    iframe.dataset.fixed = "true";
                 });
             }
 
-            // 持續掃描 10 秒 (應對懶加載)
+            // 持續掃描 10 秒
             let attempts = 0;
             const interval = setInterval(() => {
-                restoreAll();
+                fixAll();
                 attempts++;
                 if (attempts > 20) clearInterval(interval);
             }, 500);
             
-            // 立即執行一次
-            restoreAll();
+            fixAll();
           })();
           EOF
 
@@ -148,7 +215,7 @@ jobs:
           
           echo "正在抓取: ${{ inputs.url }}"
           
-          # 執行 SingleFile，掛載我們的 V43 腳本
+          # 執行 SingleFile
           timeout 5m single-file "${{ inputs.url }}" "$FILENAME" \
             --browser-executable-path=/usr/bin/google-chrome-stable \
             --browser-script=fix-youtube.js \
@@ -158,22 +225,17 @@ jobs:
             --browser-height=1080 \
             --browser-args='["--no-sandbox", "--disable-setuid-sandbox"]'
           
-          # 設定 Git 身份
           git config --global user.name 'GitHub Action Bot'
           git config --global user.email 'action@github.com'
-          
-          # 加入檔案
           git add "$FILENAME"
           git commit -m "Saved: ${{ inputs.url }}"
           
-          # --- 自動排隊同步機制 ---
-          # 如果因為多人同時存檔導致 push 失敗，這裡會自動拉取最新進度並重試
-          # 這樣你就可以連續按保存，不用等了
+          # 自動同步重試迴圈 (解決連續按 Save 導致的衝突)
           n=0
           until [ "$n" -ge 10 ]
           do
              git pull --rebase && git push && break
              n=$((n+1))
-             echo "上傳衝突，正在自動同步重試 (第 $n 次)..."
+             echo "上傳衝突，正在重試 ($n/10)..."
              sleep 5
           done
