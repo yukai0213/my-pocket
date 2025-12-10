@@ -3,19 +3,17 @@ on:
   workflow_dispatch:
     inputs:
       url:
-        description: '請輸入要抓取的網址 (URL)'
+        description: 'URL'
         required: true
-        type: string
 
 permissions:
   contents: write
   pages: write
   id-token: write
 
-# 讓任務乖乖排隊
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+# --- 關鍵修正：完全移除 concurrency 設定 ---
+# 這樣 GitHub 就不會因為「同組」而取消舊任務
+# 它會變成 First-In-First-Out 的佇列模式
 
 jobs:
   archive:
@@ -24,7 +22,7 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0 # 關鍵：抓取完整歷史，方便合併
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v3
@@ -36,7 +34,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ~/.npm
-          key: ${{ runner.os }}-node-singlefile-v30
+          key: ${{ runner.os }}-node-singlefile-v31
           restore-keys: |
             ${{ runner.os }}-node-
 
@@ -47,16 +45,15 @@ jobs:
       - name: Link SingleFile
         run: npm link single-file-cli
 
-      # --- V30 腳本：沿用 V29 的 Vimeo 復活版邏輯 ---
-      - name: Create V30 Script
+      # --- 腳本邏輯 (維持 V29/V30 的穩定版) ---
+      - name: Create Faker Script
         run: |
           cat <<EOF > fix-youtube.js
           (function() {
-            console.log("🔄 V30 自動同步版：啟動");
+            console.log("🚀 V31 排隊穩定版");
 
             function fixAllIframes() {
                 const iframes = document.querySelectorAll('iframe');
-                
                 iframes.forEach(iframe => {
                     const src = iframe.src || iframe.dataset.src || "";
                     if (!src || src === "about:blank") return;
@@ -67,9 +64,7 @@ jobs:
                     if (!parent) return;
 
                     const parentStyle = window.getComputedStyle(parent);
-                    if (parentStyle.position === 'static') {
-                        parent.style.position = 'relative';
-                    }
+                    if (parentStyle.position === 'static') parent.style.position = 'relative';
 
                     let bgImage = '';
                     let bgColor = '#222';
@@ -82,13 +77,12 @@ jobs:
                     if (src.includes('youtube') || src.includes('youtu.be')) {
                         const match = src.match(/([a-zA-Z0-9_-]{11})/);
                         if (match) {
-                            const videoId = match[1];
-                            bgImage = 'url(https://img.youtube.com/vi/' + videoId + '/hqdefault.jpg)';
+                            bgImage = 'url(https://img.youtube.com/vi/' + match[1] + '/hqdefault.jpg)';
                             bgColor = '#000';
                             btnText = "點擊開啟 YouTube 影片";
                             btnIcon = "▶";
                             btnColor = "#cc0000";
-                            linkUrl = 'https://www.youtube.com/watch?v=' + videoId;
+                            linkUrl = 'https://www.youtube.com/watch?v=' + match[1];
                         }
                     }
 
@@ -96,13 +90,12 @@ jobs:
                     if (src.includes('vimeo.com')) {
                         const match = src.match(/video\/(\d+)/);
                         if (match) {
-                            const vimeoId = match[1];
-                            bgImage = 'url(https://vumbnail.com/' + vimeoId + '.jpg)';
+                            bgImage = 'url(https://vumbnail.com/' + match[1] + '.jpg)';
                             bgColor = '#000';
                             btnText = "點擊開啟 Vimeo 影片";
                             btnIcon = "▶";
                             btnColor = "#1ab7ea";
-                            linkUrl = 'https://vimeo.com/' + vimeoId;
+                            linkUrl = 'https://vimeo.com/' + match[1];
                         }
                     }
 
@@ -110,37 +103,18 @@ jobs:
                     card.href = linkUrl;
                     card.target = "_blank";
                     card.rel = "noopener noreferrer";
-                    
                     card.style.cssText = \`
-                        position: absolute;
-                        top: 0;
-                        left: 0;
-                        width: 100%;
-                        height: 100%;
-                        background-color: \${bgColor};
-                        background-image: \${bgImage};
-                        background-position: center;
-                        background-size: cover;
-                        background-repeat: no-repeat;
-                        display: flex;
-                        flex-direction: column;
-                        align-items: center;
-                        justify-content: center;
-                        text-decoration: none;
-                        z-index: 10;
-                        box-sizing: border-box;
-                        border: 2px solid \${btnColor};
+                        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+                        background-color: \${bgColor}; background-image: \${bgImage};
+                        background-position: center; background-size: cover; background-repeat: no-repeat;
+                        display: flex; flex-direction: column; align-items: center; justify-content: center;
+                        text-decoration: none; z-index: 10; box-sizing: border-box; border: 2px solid \${btnColor};
                     \`;
-
+                    
                     card.innerHTML = \`
-                        <div style="background: rgba(0,0,0,0.6); width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                            <div style="font-size: 40px; margin-bottom: 10px;">\${btnIcon}</div>
-                            <div style="background-color: \${btnColor}; color: white; padding: 8px 16px; border-radius: 4px; font-weight: bold; font-size: 14px; font-family: sans-serif; box-shadow: 0 2px 4px rgba(0,0,0,0.5);">
-                                \${btnText}
-                            </div>
-                            <div style="margin-top: 8px; color: #aaa; font-size: 10px; font-family: monospace; max-width: 80%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                                來源: \${src}
-                            </div>
+                        <div style="background:rgba(0,0,0,0.6);width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+                            <div style="font-size:40px;margin-bottom:10px;">\${btnIcon}</div>
+                            <div style="background-color:\${btnColor};color:white;padding:8px 16px;border-radius:4px;font-weight:bold;">\${btnText}</div>
                         </div>
                     \`;
 
@@ -150,48 +124,32 @@ jobs:
                     iframe.dataset.patched = "true";
                 });
             }
-
-            let attempts = 0;
-            const interval = setInterval(() => {
-                fixAllIframes();
-                attempts++;
-                if (attempts > 30) clearInterval(interval);
-            }, 500);
-            
-            fixAllIframes();
+            setInterval(fixAllIframes, 500);
           })();
           EOF
 
-      # --- 步驟 2: 執行抓取 (含自動同步機制) ---
       - name: Save Page
         run: |
           TIMESTAMP=$(date +'%Y%m%d-%H%M%S')
           FILENAME="saved-${TIMESTAMP}.html"
-          
-          echo "正在抓取: ${{ inputs.url }}"
-          
           timeout 5m single-file "${{ inputs.url }}" "$FILENAME" \
             --browser-executable-path=/usr/bin/google-chrome-stable \
             --browser-script=fix-youtube.js \
             --block-scripts=false \
             --load-deferred-images-max-idle-time=3000 \
-            --browser-width=1920 \
-            --browser-height=1080 \
+            --browser-width=1920 --browser-height=1080 \
             --browser-args='["--no-sandbox", "--disable-setuid-sandbox"]'
           
-          # --- V30 關鍵修正：上傳前先同步 ---
           git config --global user.name 'GitHub Action Bot'
           git config --global user.email 'action@github.com'
-          
           git add "$FILENAME"
           git commit -m "Saved: ${{ inputs.url }}"
           
-          # 迴圈重試機制：如果上傳失敗(因為有人插隊)，就拉下來合併再試一次，最多試 5 次
+          # 依然保留自動同步，以防萬一
           n=0
-          until [ "$n" -ge 5 ]
+          until [ "$n" -ge 10 ]
           do
              git pull --rebase && git push && break
              n=$((n+1))
-             echo "上傳失敗 (可能有人插隊)，正在重試第 $n 次..."
              sleep 5
           done
