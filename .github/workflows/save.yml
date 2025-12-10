@@ -12,6 +12,7 @@ permissions:
   pages: write
   id-token: write
 
+# 讓任務乖乖排隊
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
@@ -22,6 +23,8 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # 關鍵：抓取完整歷史，方便合併
 
       - name: Setup Node.js
         uses: actions/setup-node@v3
@@ -33,7 +36,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ~/.npm
-          key: ${{ runner.os }}-node-singlefile-v29
+          key: ${{ runner.os }}-node-singlefile-v30
           restore-keys: |
             ${{ runner.os }}-node-
 
@@ -44,19 +47,18 @@ jobs:
       - name: Link SingleFile
         run: npm link single-file-cli
 
-      # --- 步驟 1: 建立「V29 Vimeo 復活版」修復腳本 ---
-      - name: Create V29 Faker Script
+      # --- V30 腳本：沿用 V29 的 Vimeo 復活版邏輯 ---
+      - name: Create V30 Script
         run: |
           cat <<EOF > fix-youtube.js
           (function() {
-            console.log("🔥 V29 Vimeo 復活版：啟動");
+            console.log("🔄 V30 自動同步版：啟動");
 
             function fixAllIframes() {
                 const iframes = document.querySelectorAll('iframe');
                 
                 iframes.forEach(iframe => {
                     const src = iframe.src || iframe.dataset.src || "";
-                    
                     if (!src || src === "about:blank") return;
                     if (iframe.offsetWidth < 50 || iframe.offsetHeight < 50) return;
                     if (iframe.dataset.patched === "true") return;
@@ -76,7 +78,7 @@ jobs:
                     let btnColor = "#007bff";
                     let linkUrl = src;
 
-                    // A. YouTube
+                    // YouTube
                     if (src.includes('youtube') || src.includes('youtu.be')) {
                         const match = src.match(/([a-zA-Z0-9_-]{11})/);
                         if (match) {
@@ -90,12 +92,11 @@ jobs:
                         }
                     }
 
-                    // B. Vimeo (Vumbnail)
+                    // Vimeo
                     if (src.includes('vimeo.com')) {
                         const match = src.match(/video\/(\d+)/);
                         if (match) {
                             const vimeoId = match[1];
-                            // 使用第三方轉址服務獲取縮圖
                             bgImage = 'url(https://vumbnail.com/' + vimeoId + '.jpg)';
                             bgColor = '#000';
                             btnText = "點擊開啟 Vimeo 影片";
@@ -161,7 +162,7 @@ jobs:
           })();
           EOF
 
-      # --- 步驟 2: 執行抓取 ---
+      # --- 步驟 2: 執行抓取 (含自動同步機制) ---
       - name: Save Page
         run: |
           TIMESTAMP=$(date +'%Y%m%d-%H%M%S')
@@ -178,8 +179,19 @@ jobs:
             --browser-height=1080 \
             --browser-args='["--no-sandbox", "--disable-setuid-sandbox"]'
           
+          # --- V30 關鍵修正：上傳前先同步 ---
           git config --global user.name 'GitHub Action Bot'
           git config --global user.email 'action@github.com'
+          
           git add "$FILENAME"
           git commit -m "Saved: ${{ inputs.url }}"
-          git push
+          
+          # 迴圈重試機制：如果上傳失敗(因為有人插隊)，就拉下來合併再試一次，最多試 5 次
+          n=0
+          until [ "$n" -ge 5 ]
+          do
+             git pull --rebase && git push && break
+             n=$((n+1))
+             echo "上傳失敗 (可能有人插隊)，正在重試第 $n 次..."
+             sleep 5
+          done
