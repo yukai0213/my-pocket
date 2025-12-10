@@ -12,6 +12,10 @@ permissions:
   pages: write
   id-token: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   archive:
     runs-on: ubuntu-latest
@@ -29,7 +33,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ~/.npm
-          key: ${{ runner.os }}-node-singlefile-v17
+          key: ${{ runner.os }}-node-singlefile-v29
           restore-keys: |
             ${{ runner.os }}-node-
 
@@ -40,81 +44,120 @@ jobs:
       - name: Link SingleFile
         run: npm link single-file-cli
 
-      # --- 步驟 1: 建立「V17 非破壞性標註」修復腳本 ---
-      - name: Create Non-Destructive Script
+      # --- 步驟 1: 建立「V29 Vimeo 復活版」修復腳本 ---
+      - name: Create V29 Faker Script
         run: |
           cat <<EOF > fix-youtube.js
           (function() {
-            console.log("🏷️ V17 非破壞性標註版：啟動");
+            console.log("🔥 V29 Vimeo 復活版：啟動");
 
-            function patchIframes() {
+            function fixAllIframes() {
                 const iframes = document.querySelectorAll('iframe');
                 
                 iframes.forEach(iframe => {
-                    // --- 核心防重機制：直接檢查 iframe 身上有沒有標籤 ---
+                    const src = iframe.src || iframe.dataset.src || "";
+                    
+                    if (!src || src === "about:blank") return;
+                    if (iframe.offsetWidth < 50 || iframe.offsetHeight < 50) return;
                     if (iframe.dataset.patched === "true") return;
 
-                    const src = iframe.src || iframe.dataset.src || "";
-                    if (!src) return;
+                    const parent = iframe.parentElement;
+                    if (!parent) return;
 
-                    // 這裡我們做寬鬆判定，只要是 iframe 都給它一個連結按鈕
-                    // 因為有些影片不一定是 YouTube，可能是 Vimeo 或其他
-                    // 我們統一提供「原始連結」
-                    
-                    console.log("🔧 標註 iframe: " + src);
+                    const parentStyle = window.getComputedStyle(parent);
+                    if (parentStyle.position === 'static') {
+                        parent.style.position = 'relative';
+                    }
 
-                    // 1. 建立按鈕
-                    const linkBtn = document.createElement('a');
-                    linkBtn.href = src;
-                    linkBtn.target = "_blank";
-                    linkBtn.rel = "noopener noreferrer";
-                    
-                    // 根據是否為 YouTube 給予不同顏色提示
-                    const isYoutube = src.includes('youtube') || src.includes('youtu.be');
-                    const btnText = isYoutube ? "📺 YouTube 影片 (點此開啟)" : "🔗 外部嵌入內容 (點此開啟)";
-                    const btnColor = isYoutube ? "#d32f2f" : "#555";
+                    let bgImage = '';
+                    let bgColor = '#222';
+                    let btnText = "點擊開啟 外部嵌入內容";
+                    let btnIcon = "🔗";
+                    let btnColor = "#007bff";
+                    let linkUrl = src;
 
-                    linkBtn.innerText = btnText;
+                    // A. YouTube
+                    if (src.includes('youtube') || src.includes('youtu.be')) {
+                        const match = src.match(/([a-zA-Z0-9_-]{11})/);
+                        if (match) {
+                            const videoId = match[1];
+                            bgImage = 'url(https://img.youtube.com/vi/' + videoId + '/hqdefault.jpg)';
+                            bgColor = '#000';
+                            btnText = "點擊開啟 YouTube 影片";
+                            btnIcon = "▶";
+                            btnColor = "#cc0000";
+                            linkUrl = 'https://www.youtube.com/watch?v=' + videoId;
+                        }
+                    }
+
+                    // B. Vimeo (Vumbnail)
+                    if (src.includes('vimeo.com')) {
+                        const match = src.match(/video\/(\d+)/);
+                        if (match) {
+                            const vimeoId = match[1];
+                            // 使用第三方轉址服務獲取縮圖
+                            bgImage = 'url(https://vumbnail.com/' + vimeoId + '.jpg)';
+                            bgColor = '#000';
+                            btnText = "點擊開啟 Vimeo 影片";
+                            btnIcon = "▶";
+                            btnColor = "#1ab7ea";
+                            linkUrl = 'https://vimeo.com/' + vimeoId;
+                        }
+                    }
+
+                    const card = document.createElement('a');
+                    card.href = linkUrl;
+                    card.target = "_blank";
+                    card.rel = "noopener noreferrer";
                     
-                    // 樣式：簡單、乾淨、不干擾排版
-                    linkBtn.style.cssText = \`
-                        display: block;
-                        background-color: \${btnColor};
-                        color: white;
-                        padding: 12px 20px;
-                        margin: 10px 0;
-                        text-align: center;
+                    card.style.cssText = \`
+                        position: absolute;
+                        top: 0;
+                        left: 0;
+                        width: 100%;
+                        height: 100%;
+                        background-color: \${bgColor};
+                        background-image: \${bgImage};
+                        background-position: center;
+                        background-size: cover;
+                        background-repeat: no-repeat;
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                        justify-content: center;
                         text-decoration: none;
-                        font-weight: bold;
-                        border-radius: 6px;
-                        font-family: sans-serif;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                        z-index: 10;
+                        box-sizing: border-box;
+                        border: 2px solid \${btnColor};
                     \`;
 
-                    // 2. 插入按鈕 (在 iframe 前面)
-                    if(iframe.parentNode) {
-                        iframe.parentNode.insertBefore(linkBtn, iframe);
-                        
-                        // 3. 隱藏 iframe (但不刪除！防止網頁再生)
-                        iframe.style.display = 'none';
-                        
-                        // 4. 打上標記 (這是最重要的！)
-                        iframe.dataset.patched = "true";
-                    }
+                    card.innerHTML = \`
+                        <div style="background: rgba(0,0,0,0.6); width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                            <div style="font-size: 40px; margin-bottom: 10px;">\${btnIcon}</div>
+                            <div style="background-color: \${btnColor}; color: white; padding: 8px 16px; border-radius: 4px; font-weight: bold; font-size: 14px; font-family: sans-serif; box-shadow: 0 2px 4px rgba(0,0,0,0.5);">
+                                \${btnText}
+                            </div>
+                            <div style="margin-top: 8px; color: #aaa; font-size: 10px; font-family: monospace; max-width: 80%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                來源: \${src}
+                            </div>
+                        </div>
+                    \`;
+
+                    parent.appendChild(card);
+                    iframe.style.opacity = '0';
+                    iframe.style.pointerEvents = 'none';
+                    iframe.dataset.patched = "true";
                 });
             }
 
-            // 溫和掃描：每 1 秒檢查一次，持續 15 秒
-            // 因為我們不刪除元素，所以網頁不會一直「反抗」，掃描頻率可以降低
             let attempts = 0;
             const interval = setInterval(() => {
-                patchIframes();
+                fixAllIframes();
                 attempts++;
-                if (attempts > 15) clearInterval(interval);
-            }, 1000);
+                if (attempts > 30) clearInterval(interval);
+            }, 500);
             
-            // 立即執行一次
-            patchIframes();
+            fixAllIframes();
           })();
           EOF
 
@@ -126,7 +169,6 @@ jobs:
           
           echo "正在抓取: ${{ inputs.url }}"
           
-          # 3000ms 等待即可
           timeout 5m single-file "${{ inputs.url }}" "$FILENAME" \
             --browser-executable-path=/usr/bin/google-chrome-stable \
             --browser-script=fix-youtube.js \
