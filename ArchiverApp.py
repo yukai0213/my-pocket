@@ -208,8 +208,9 @@ class ArchiverApp:
         with open("local_fix.js", "w", encoding="utf-8") as f:
             f.write(js_script)
 
-        cmd = [
-            "single-file", 
+        
+            cmd = [
+            "single-file.cmd",  # <--- 改成這樣 (針對 Windows)
             url, 
             filename,
             "--browser-script=local_fix.js",
