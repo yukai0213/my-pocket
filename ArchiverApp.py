@@ -3,37 +3,43 @@ from tkinter import ttk, messagebox
 import subprocess
 import os
 import threading
+import shutil
+import platform
+import sys
 from datetime import datetime
 
 # --- 設定區 ---
 REPO_PATH = os.getcwd() 
-# BROWSER_PATH = r"C:\Program Files\Google\Chrome\Application\chrome.exe" 
 
 class ArchiverApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("網頁存檔控制中心 (Local Archiver) - V44 GUI")
-        self.root.geometry("900x600")
+        self.system = platform.system() # 偵測作業系統 (Windows/Darwin/Linux)
+        self.root.title(f"網頁存檔控制中心 (Local Archiver) - V49 {self.system} 版")
+        self.root.geometry("950x650")
 
+        # 字型設定 (Mac 和 Windows 字型不同)
+        font_name = '微軟正黑體' if self.system == 'Windows' else 'PingFang TC'
+        
         style = ttk.Style()
-        style.configure("Treeview", font=('微軟正黑體', 10), rowheight=25)
-        style.configure("TButton", font=('微軟正黑體', 10))
-        style.configure("TLabel", font=('微軟正黑體', 10))
-
-        # 上方
+        style.configure("Treeview", font=(font_name, 10), rowheight=25)
+        style.configure("TButton", font=(font_name, 10))
+        style.configure("TLabel", font=(font_name, 10))
+        
+        # --- 1. 上方操作區 ---
         frame_top = ttk.Frame(root, padding=10)
         frame_top.pack(fill=tk.X)
 
         self.url_var = tk.StringVar()
         ttk.Label(frame_top, text="網址:").pack(side=tk.LEFT, padx=5)
-        self.entry_url = ttk.Entry(frame_top, textvariable=self.url_var, width=50)
+        self.entry_url = ttk.Entry(frame_top, textvariable=self.url_var, width=60)
         self.entry_url.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
         self.entry_url.bind("<Return>", lambda event: self.start_download_thread())
 
         self.btn_download = ttk.Button(frame_top, text="🚀 立即抓取", command=self.start_download_thread)
         self.btn_download.pack(side=tk.LEFT, padx=5)
 
-        # 中間
+        # --- 2. 中間列表區 ---
         frame_mid = ttk.Frame(root, padding=10)
         frame_mid.pack(fill=tk.BOTH, expand=True)
 
@@ -55,24 +61,24 @@ class ArchiverApp:
         self.tree.bind("<Double-1>", self.open_file)
         self.tree.bind("<Button-3>", self.show_context_menu)
 
-        # 下方
+        # --- 3. 下方功能區 ---
         frame_bot = ttk.Frame(root, padding=10)
         frame_bot.pack(fill=tk.X)
 
         self.btn_refresh = ttk.Button(frame_bot, text="🔄 重新整理", command=self.load_files)
         self.btn_refresh.pack(side=tk.LEFT, padx=5)
-
-        self.btn_sync = ttk.Button(frame_bot, text="☁️ 同步到 GitHub (Push)", command=self.sync_to_github)
-        self.btn_sync.pack(side=tk.RIGHT, padx=5)
         
-        self.btn_pull = ttk.Button(frame_bot, text="⬇️ 從 GitHub 下載 (Pull)", command=self.pull_from_github)
-        self.btn_pull.pack(side=tk.RIGHT, padx=5)
+        self.btn_check = ttk.Button(frame_bot, text="🏥 系統健檢", command=self.check_environment)
+        self.btn_check.pack(side=tk.LEFT, padx=5)
 
-        # 狀態列
+        self.btn_sync = ttk.Button(frame_bot, text="☁️ 同步到 GitHub", command=self.sync_to_github)
+        self.btn_sync.pack(side=tk.RIGHT, padx=5)
+
+        # --- 4. 狀態列 ---
         self.status_var = tk.StringVar()
-        self.status_var.set("就緒")
-        status_bar = ttk.Label(root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
-        status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+        self.status_var.set("系統就緒")
+        self.status_entry = tk.Entry(root, textvariable=self.status_var, relief=tk.SUNKEN, state='readonly')
+        self.status_entry.pack(side=tk.BOTTOM, fill=tk.X)
 
         self.load_files()
         
@@ -83,23 +89,44 @@ class ArchiverApp:
 
     def log(self, message):
         self.status_var.set(message)
-        # 這裡不呼叫 update_idletasks 避免在 thread 中發生衝突
+
+    def get_singlefile_cmd(self):
+        """根據作業系統決定指令名稱"""
+        if self.system == "Windows":
+            return "single-file.cmd"
+        else:
+            return "single-file" # Mac/Linux
+
+    def check_environment(self):
+        self.log("正在檢查環境...")
+        cmd_name = self.get_singlefile_cmd()
+        sf_path = shutil.which(cmd_name)
+        
+        if sf_path:
+            self.log(f"✅ 環境正常: {sf_path}")
+            return True
+        else:
+            # 再次嘗試找沒有副檔名的
+            if shutil.which("single-file"):
+                self.log(f"✅ 環境正常: single-file")
+                return True
+                
+            self.log(f"❌ 環境錯誤: 找不到 {cmd_name} 指令！")
+            msg = "找不到 single-file！\n\nMac 請執行: sudo npm install -g single-file-cli\nWindows 請執行: npm install -g single-file-cli"
+            messagebox.showerror("錯誤", msg)
+            return False
 
     def load_files(self):
         for item in self.tree.get_children():
             self.tree.delete(item)
-        
         try:
             files = [f for f in os.listdir(REPO_PATH) if f.endswith('.html')]
             files.sort(key=lambda x: os.path.getmtime(os.path.join(REPO_PATH, x)), reverse=True)
-
             for f in files:
                 path = os.path.join(REPO_PATH, f)
                 size = f"{os.path.getsize(path) / 1024:.1f} KB"
                 mtime = datetime.fromtimestamp(os.path.getmtime(path)).strftime('%Y-%m-%d %H:%M')
                 self.tree.insert("", "end", values=(f, size, mtime))
-            
-            self.log(f"已載入 {len(files)} 個檔案")
         except Exception as e:
             self.log(f"讀取列表錯誤: {str(e)}")
 
@@ -114,8 +141,15 @@ class ArchiverApp:
         if not selected: return
         filename = self.tree.item(selected[0])['values'][0]
         filepath = os.path.join(REPO_PATH, filename)
+        
+        # 跨平台開啟檔案
         try:
-            os.startfile(filepath)
+            if self.system == "Windows":
+                os.startfile(filepath)
+            elif self.system == "Darwin": # macOS
+                subprocess.run(["open", filepath], check=True)
+            else: # Linux
+                subprocess.run(["xdg-open", filepath], check=True)
         except Exception as e:
             messagebox.showerror("錯誤", str(e))
 
@@ -124,7 +158,6 @@ class ArchiverApp:
         if not selected: return
         filename = self.tree.item(selected[0])['values'][0]
         filepath = os.path.join(REPO_PATH, filename)
-        
         if messagebox.askyesno("確認刪除", f"確定要刪除 {filename} 嗎？"):
             try:
                 os.remove(filepath)
@@ -135,10 +168,9 @@ class ArchiverApp:
 
     def start_download_thread(self):
         url = self.url_var.get().strip()
-        if not url:
-            messagebox.showwarning("提示", "請輸入網址")
-            return
-        
+        if not url: return
+        if not self.check_environment(): return
+
         self.btn_download.config(state=tk.DISABLED)
         threading.Thread(target=self.run_singlefile, args=(url,)).start()
 
@@ -147,10 +179,10 @@ class ArchiverApp:
         timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
         filename = f"saved-{timestamp}.html"
         
-        # 使用 r"""...""" (Raw String) 避免正則表達式的 \ 跳脫字元警告
+        # --- V48 連結復活版 JS 腳本 (跨平台通用) ---
         js_script = r"""
         (function() {
-            console.log("Local Archiver Script V44 Running...");
+            console.log("Local Archiver V48 Running (Native Anchor Mode)...");
             window.scrollBy(0, 100); setTimeout(() => window.scrollBy(0, -100), 500);
             
             function queryAllDeep(selector, root = document) {
@@ -165,7 +197,7 @@ class ArchiverApp:
             function fixAll() {
                 const targets = [...queryAllDeep('iframe'), ...queryAllDeep('video')];
                 targets.forEach(el => {
-                    if(el.parentNode.querySelector('.my-fix-card')) return;
+                    if(el.dataset.patched === "true") return;
                     
                     let tagName = el.tagName.toLowerCase();
                     let src = "";
@@ -175,7 +207,7 @@ class ArchiverApp:
                     if(!src || src === "about:blank") return;
                     if(el.offsetWidth < 30) return;
 
-                    let bg='#222', icon='🔗', txt='開啟內容', col='#007bff', url=src;
+                    let bg='rgba(0,0,0,0.8)', icon='🔗', txt='開啟內容', col='#007bff', url=src;
                     
                     if(src.includes('youtube') || src.includes('youtu.be')) {
                         let m = src.match(/([a-zA-Z0-9_-]{11})/);
@@ -185,19 +217,33 @@ class ArchiverApp:
                         if(m) { bg='url(https://vumbnail.com/'+m[1]+'.jpg)'; col='#1ab7ea'; icon='▶'; txt='Vimeo'; url='https://vimeo.com/'+m[1]; }
                     } else if(tagName === 'video') {
                         icon='🎬'; txt='原始檔'; col='#28a745';
+                        bg = 'rgba(0,0,0,0.5)';
                     }
 
-                    let card = document.createElement('div');
+                    // 處理父層連結衝突
+                    let parentLink = el.closest('a');
+                    if (parentLink) {
+                        parentLink.removeAttribute('href'); 
+                        parentLink.style.cursor = 'default';
+                        parentLink.onclick = (e) => e.preventDefault();
+                    }
+
+                    let card = document.createElement('a');
                     card.className = 'my-fix-card';
-                    card.onclick = (e) => { e.preventDefault(); e.stopPropagation(); window.open(url, '_blank'); };
-                    card.style.cssText = `position:absolute;top:0;left:0;width:100%;height:100%;background:${bg} center/cover no-repeat;background-color:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:10;cursor:pointer;border:2px solid ${col};box-sizing:border-box;border-radius:inherit;`;
+                    card.href = url;
+                    card.target = "_blank";
+                    card.rel = "noopener noreferrer";
+                    
+                    card.style.cssText = `position:absolute;top:0;left:0;width:100%;height:100%;background:${bg} center/cover no-repeat;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:2147483647 !important;cursor:pointer;border:2px solid ${col};box-sizing:border-box;border-radius:inherit;text-decoration:none;`;
                     card.innerHTML = `<div style="background:rgba(0,0,0,0.7);padding:5px 15px;border-radius:20px;text-align:center;color:white;font-weight:bold;font-size:14px;box-shadow:0 2px 5px rgba(0,0,0,0.5);">${icon} ${txt}</div>`;
                     
                     if(el.parentNode) {
                         let p = el.parentNode;
                         if(getComputedStyle(p).position==='static') p.style.position='relative';
                         p.insertBefore(card, el);
-                        el.remove();
+                        el.style.opacity = '0';
+                        el.style.pointerEvents = 'none';
+                        el.dataset.patched = "true";
                     }
                 });
             }
@@ -208,32 +254,39 @@ class ArchiverApp:
         with open("local_fix.js", "w", encoding="utf-8") as f:
             f.write(js_script)
 
-        
-            cmd = [
-            "single-file.cmd",  # <--- 改成這樣 (針對 Windows)
+        # 組合指令 (跨平台)
+        cmd_name = self.get_singlefile_cmd()
+        cmd = [
+            cmd_name, 
             url, 
             filename,
             "--browser-script=local_fix.js",
-            "--block-scripts=false",
-            "--load-deferred-images-max-idle-time=2000"
+            "--block-scripts=false", 
+            "--load-deferred-images-max-idle-time=2000",
+            "--browser-width=1920",
+            "--browser-height=1080",
+            "--browser-args=[\"--no-sandbox\"]"
         ]
-        # cmd.append(f"--browser-executable-path={BROWSER_PATH}")
 
         try:
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', startupinfo=startupinfo)
+            # Mac 不需要 startupinfo
+            if self.system == "Windows":
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', startupinfo=startupinfo)
+            else:
+                process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8')
+
             stdout, stderr = process.communicate()
 
             if process.returncode == 0:
                 self.root.after(0, lambda: [self.load_files(), self.log(f"✅ 抓取成功: {filename}"), self.entry_url.delete(0, tk.END)])
             else:
-                err_msg = stderr # 先存變數
-                self.root.after(0, lambda: self.log(f"❌ 抓取失敗: {err_msg}"))
+                err_msg = stderr
+                self.root.after(0, lambda: messagebox.showerror("抓取失敗", f"錯誤訊息：\n{err_msg}"))
         except Exception as e:
-            err_msg = str(e) # 先存變數
-            self.root.after(0, lambda: self.log(f"❌ 錯誤: {err_msg}"))
+            err_msg = str(e)
+            self.root.after(0, lambda: messagebox.showerror("執行錯誤", f"Python 錯誤：\n{err_msg}"))
         finally:
             self.root.after(0, lambda: self.btn_download.config(state=tk.NORMAL))
 
@@ -241,28 +294,21 @@ class ArchiverApp:
         self.log("正在同步到 GitHub...")
         threading.Thread(target=self.run_git_sync).start()
 
-    def pull_from_github(self):
-        self.log("正在從 GitHub 下載最新檔案...")
-        threading.Thread(target=self.run_git_pull).start()
-
     def run_git_sync(self):
         try:
-            subprocess.run(["git", "add", "."], check=True)
-            subprocess.run(["git", "commit", "-m", f"Local Update {datetime.now()}"], check=False)
-            subprocess.run(["git", "pull", "--rebase"], check=True)
-            subprocess.run(["git", "push"], check=True)
-            self.root.after(0, lambda: [self.load_files(), self.log("✅ 同步完成 (Push Success)")])
-        except Exception as e:
-            err_msg = str(e) # 先存變數
-            self.root.after(0, lambda: self.log(f"❌ 同步失敗: {err_msg}"))
+            # Mac 不需要 creationflags
+            kwargs = {}
+            if self.system == "Windows":
+                kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
 
-    def run_git_pull(self):
-        try:
-            subprocess.run(["git", "pull", "--rebase"], check=True)
-            self.root.after(0, lambda: [self.load_files(), self.log("✅ 下載完成 (Pull Success)")])
+            subprocess.run(["git", "add", "."], check=True, **kwargs)
+            subprocess.run(["git", "commit", "-m", f"Local Update {datetime.now()}"], check=False, **kwargs)
+            subprocess.run(["git", "pull", "--rebase"], check=True, **kwargs)
+            subprocess.run(["git", "push"], check=True, **kwargs)
+            self.root.after(0, lambda: [self.load_files(), self.log("✅ 同步完成")])
         except Exception as e:
-            err_msg = str(e) # 先存變數
-            self.root.after(0, lambda: self.log(f"❌ 下載失敗: {err_msg}"))
+            err_msg = str(e)
+            self.root.after(0, lambda: messagebox.showerror("同步失敗", f"Git 錯誤：\n{err_msg}"))
 
 if __name__ == "__main__":
     root = tk.Tk()
