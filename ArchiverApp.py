@@ -1,22 +1,36 @@
+# -*- coding: utf-8 -*-
 import tkinter as tk
+import urllib.request
+import re
 from tkinter import ttk, messagebox
 import subprocess
 import os
 import threading
 import shutil
 import platform
-import sys
 from datetime import datetime
 
+
 # --- 設定區 ---
-# 強制獲取當前絕對路徑，避免 Mac 跑到奇怪的地方
+try:
+    from plugin_manager import PluginManager
+except ImportError:
+    # 若同層找不到，嘗試加入 path (雖通常不需要，為防萬一)
+    import sys
+    sys.path.append(os.getcwd())
+    from plugin_manager import PluginManager
+
 REPO_PATH = os.path.abspath(os.getcwd())
 
-class ArchiverApp:
     def __init__(self, root):
         self.root = root
         self.system = platform.system()
-        self.root.title(f"網頁存檔控制中心 (Local Archiver) - V52 嚴格驗屍版")
+        self.root.title(f"網頁存檔控制中心 (Local Archiver) - V56 模組化版")
+        
+        # 初始化 Plugin Manager
+        self.plugin_manager = PluginManager()
+
+
         self.root.geometry("1000x700")
 
         font_name = '微軟正黑體' if self.system == 'Windows' else 'PingFang TC'
@@ -89,7 +103,6 @@ class ArchiverApp:
         self.context_menu.add_separator()
         self.context_menu.add_command(label="❌ 刪除檔案", command=self.delete_file)
         
-        # 實體刪除按鈕
         self.btn_del = ttk.Button(frame_bot, text="🗑️ 刪除檔案", command=self.delete_file)
         self.btn_del.pack(side=tk.LEFT, padx=5)
 
@@ -122,7 +135,7 @@ class ArchiverApp:
                 size = f"{os.path.getsize(path) / 1024:.1f} KB"
                 mtime = datetime.fromtimestamp(os.path.getmtime(path)).strftime('%Y-%m-%d %H:%M')
                 self.tree.insert("", "end", values=(f, size, mtime))
-            self.log(f"已載入 {len(files)} 個檔案 (路徑: {REPO_PATH})")
+            self.log(f"已載入 {len(files)} 個檔案")
         except Exception as e:
             self.log(f"讀取列表錯誤: {str(e)}")
 
@@ -164,102 +177,100 @@ class ArchiverApp:
         if not ok: return
 
         self.btn_download.config(state=tk.DISABLED)
-        # 傳入找到的執行檔路徑
         threading.Thread(target=self.run_singlefile, args=(url, sf_path)).start()
+
+    def sanitize_filename(self, name):
+        # 移除非法字元
+        name = re.sub(r'[\\/*?:"<>|]', "", name)
+        # 移除前後空白
+        return name.strip()
+
+    def get_webpage_title(self, url):
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'})
+            with urllib.request.urlopen(req, timeout=10) as response:
+                content = response.read()
+                # 嘗試偵測編碼
+                charset = response.headers.get_content_charset()
+                if not charset:
+                    # 簡單猜測：看 meta tag
+                    content_start = content[:1024].decode('ascii', errors='ignore')
+                    match = re.search(r'charset=["\']?([\w-]+)', content_start, re.IGNORECASE)
+                    if match:
+                        charset = match.group(1)
+                    else:
+                        charset = 'utf-8' # 預設
+                
+                html = content.decode(charset, errors='ignore')
+                title_match = re.search(r'<title>(.*?)</title>', html, re.IGNORECASE | re.DOTALL)
+                if title_match:
+                    return title_match.group(1).strip()
+        except Exception as e:
+            self.log(f"標題抓取失敗 (將使用預設名稱): {str(e)}")
+        return None
 
     def run_singlefile(self, url, sf_path):
         timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
-        filename = f"saved-{timestamp}.html"
-        full_filepath = os.path.join(REPO_PATH, filename) # 絕對路徑
         
-        self.log(f"正在抓取: {url} -> {filename}")
+        # 1. 嘗試抓取標題當作檔名
+        self.log(f"正在分析網頁標題: {url} ...")
+        page_title = self.get_webpage_title(url)
         
-        # --- V50 JS 腳本 (保持不變) ---
-        js_script = r"""
-        (function() {
-            console.log("Local Archiver V50 Running...");
-            window.scrollBy(0, 100); setTimeout(() => window.scrollBy(0, -100), 500);
+        if page_title:
+            safe_title = self.sanitize_filename(page_title)
+            filename = f"{safe_title}.html"
+            # 檢查檔案是否已存在，若存在則加上時間戳記
+            if os.path.exists(os.path.join(REPO_PATH, filename)):
+                 filename = f"{safe_title}_{timestamp}.html"
+        else:
+            filename = f"saved-{timestamp}.html"
             
-            function queryAllDeep(selector, root = document) {
-                let elements = Array.from(root.querySelectorAll(selector));
-                const hosts = Array.from(root.querySelectorAll('*')).filter(e => e.shadowRoot);
-                for (const host of hosts) {
-                    elements = elements.concat(queryAllDeep(selector, host.shadowRoot));
-                }
-                return elements;
-            }
-
-            function fixAll() {
-                const targets = [...queryAllDeep('iframe'), ...queryAllDeep('video')];
-                const blockedKeywords = ['googlesyndication', 'doubleclick', 'googleads', 'safeframe', 'adservice', 'adnxs', 'ads', 'ad-'];
-
-                targets.forEach(el => {
-                    if(el.dataset.patched === "true") return;
-                    let tagName = el.tagName.toLowerCase();
-                    let src = "";
-                    if (tagName === 'iframe') src = el.src || el.dataset.src || "";
-                    else if (tagName === 'video') src = el.currentSrc || el.src || "";
-
-                    if(!src || src === "about:blank") return;
-                    if(el.offsetWidth < 30) return;
-                    if (blockedKeywords.some(keyword => src.includes(keyword))) return;
-
-                    let bg='rgba(0,0,0,0.8)', icon='🔗', txt='開啟內容', col='#007bff', url=src;
-                    
-                    if(src.includes('youtube') || src.includes('youtu.be')) {
-                        let m = src.match(/([a-zA-Z0-9_-]{11})/);
-                        if(m) { bg='url(https://img.youtube.com/vi/'+m[1]+'/hqdefault.jpg)'; col='#c00'; icon='▶'; txt='YouTube'; url='https://www.youtube.com/watch?v='+m[1]; }
-                    } else if(src.includes('vimeo')) {
-                        let m = src.match(/video\/(\d+)/);
-                        if(m) { bg='url(https://vumbnail.com/'+m[1]+'.jpg)'; col='#1ab7ea'; icon='▶'; txt='Vimeo'; url='https://vimeo.com/'+m[1]; }
-                    } else if(tagName === 'video') {
-                        icon='🎬'; txt='原始檔'; col='#28a745'; bg = 'rgba(0,0,0,0.5)';
-                    }
-
-                    let parentLink = el.closest('a');
-                    if (parentLink) {
-                        parentLink.removeAttribute('href'); 
-                        parentLink.style.cursor = 'default';
-                        parentLink.onclick = (e) => e.preventDefault();
-                    }
-
-                    let card = document.createElement('a');
-                    card.className = 'my-fix-card';
-                    card.href = url;
-                    card.target = "_blank";
-                    card.rel = "noopener noreferrer";
-                    card.style.cssText = `position:absolute;top:0;left:0;width:100%;height:100%;background:${bg} center/cover no-repeat;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:2147483647 !important;cursor:pointer;border:2px solid ${col};box-sizing:border-box;border-radius:inherit;text-decoration:none;`;
-                    card.innerHTML = `<div style="background:rgba(0,0,0,0.7);padding:5px 15px;border-radius:20px;text-align:center;color:white;font-weight:bold;font-size:14px;box-shadow:0 2px 5px rgba(0,0,0,0.5);">${icon} ${txt}</div>`;
-                    
-                    if(el.parentNode) {
-                        let p = el.parentNode;
-                        if(getComputedStyle(p).position==='static') p.style.position='relative';
-                        p.insertBefore(card, el);
-                        el.style.opacity = '0';
-                        el.style.pointerEvents = 'none';
-                        el.dataset.patched = "true";
-                    }
-                });
-            }
-            setInterval(fixAll, 1000);
-        })();
-        """
+        full_filepath = os.path.join(REPO_PATH, filename)
         
-        with open("local_fix.js", "w", encoding="utf-8") as f:
-            f.write(js_script)
+        self.log(f"正在抓取並儲存為: {filename} ...")
+        
+        # --- V56 改用 Plugin System ---
+        handler = self.plugin_manager.get_handler(url)
+        js_arg = ""
+        extra_args = []
+        
+        if handler:
+            # 1. 取得 JS
+            js_path_or_script = handler.get_js_script()
+            if js_path_or_script:
+                # 簡單判斷是檔案路徑還是腳本字串
+                if os.path.exists(js_path_or_script):
+                    js_arg = f"--browser-script={js_path_or_script}"
+                else:
+                    # 如果回傳的是 script 內容 (尚未支援，目前假設都是檔案路徑)
+                    pass
+            
+            # 2. 取得額外參數
+            extra_args = handler.get_custom_args()
 
-        # 指令 (使用絕對路徑 filename)
+            # 3. 處理檔名前綴 (Optional)
+            prefix = handler.get_filename_prefix(url, page_title)
+            if prefix:
+                full_filepath = os.path.join(REPO_PATH, f"{prefix}{filename}")
+        
         cmd = [
-            sf_path, # 使用檢查到的絕對路徑
+            sf_path, 
             url, 
-            full_filepath, # 告訴它要存的完整絕對路徑
-            "--browser-script=local_fix.js",
+            full_filepath,
             "--block-scripts=false", 
             "--load-deferred-images-max-idle-time=2000",
             "--browser-width=1920",
             "--browser-height=1080",
             "--browser-args=[\"--no-sandbox\"]"
         ]
+        
+        if js_arg:
+            cmd.insert(3, js_arg)
+            
+        if extra_args:
+            cmd.extend(extra_args)
+
+
 
         try:
             startupinfo = None
@@ -270,14 +281,11 @@ class ArchiverApp:
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', startupinfo=startupinfo)
             stdout, stderr = process.communicate()
 
-            # --- V52 關鍵驗屍邏輯 ---
-            # 只有當回傳碼為 0 且 檔案真的存在 才是成功
             if process.returncode == 0:
                 if os.path.exists(full_filepath):
                     self.root.after(0, lambda: [self.load_files(), self.log(f"✅ 抓取成功: {filename}"), self.entry_url.delete(0, tk.END)])
                 else:
-                    self.root.after(0, lambda: self.log("❌ 假性成功：檔案未生成 (請檢查權限)"))
-                    self.root.after(0, lambda: messagebox.showerror("檔案未生成", f"SingleFile 說它跑完了，但檔案不在這裡：\n{full_filepath}\n\n可能原因：目錄權限不足"))
+                    self.root.after(0, lambda: self.log("❌ 假性成功：檔案未生成"))
             else:
                 err_msg = stderr + "\n" + stdout
                 self.root.after(0, lambda: messagebox.showerror("抓取失敗", f"SingleFile 報錯：\n\n{err_msg}"))
