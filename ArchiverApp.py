@@ -5,7 +5,6 @@ import os
 import threading
 import shutil
 import platform
-import sys
 from datetime import datetime
 
 # --- 設定區 ---
@@ -14,17 +13,14 @@ REPO_PATH = os.getcwd()
 class ArchiverApp:
     def __init__(self, root):
         self.root = root
-        self.system = platform.system() # 偵測作業系統 (Windows/Darwin/Linux)
-        self.root.title(f"網頁存檔控制中心 (Local Archiver) - V49 {self.system} 版")
+        self.system = platform.system()
+        self.root.title(f"網頁存檔控制中心 (Local Archiver) - V50 廣告殺手版")
         self.root.geometry("950x650")
 
-        # 字型設定 (Mac 和 Windows 字型不同)
         font_name = '微軟正黑體' if self.system == 'Windows' else 'PingFang TC'
-        
         style = ttk.Style()
         style.configure("Treeview", font=(font_name, 10), rowheight=25)
         style.configure("TButton", font=(font_name, 10))
-        style.configure("TLabel", font=(font_name, 10))
         
         # --- 1. 上方操作區 ---
         frame_top = ttk.Frame(root, padding=10)
@@ -91,29 +87,19 @@ class ArchiverApp:
         self.status_var.set(message)
 
     def get_singlefile_cmd(self):
-        """根據作業系統決定指令名稱"""
-        if self.system == "Windows":
-            return "single-file.cmd"
-        else:
-            return "single-file" # Mac/Linux
+        return "single-file.cmd" if self.system == "Windows" else "single-file"
 
     def check_environment(self):
         self.log("正在檢查環境...")
         cmd_name = self.get_singlefile_cmd()
-        sf_path = shutil.which(cmd_name)
+        sf_path = shutil.which(cmd_name) or shutil.which("single-file")
         
         if sf_path:
             self.log(f"✅ 環境正常: {sf_path}")
             return True
         else:
-            # 再次嘗試找沒有副檔名的
-            if shutil.which("single-file"):
-                self.log(f"✅ 環境正常: single-file")
-                return True
-                
-            self.log(f"❌ 環境錯誤: 找不到 {cmd_name} 指令！")
-            msg = "找不到 single-file！\n\nMac 請執行: sudo npm install -g single-file-cli\nWindows 請執行: npm install -g single-file-cli"
-            messagebox.showerror("錯誤", msg)
+            self.log(f"❌ 環境錯誤: 找不到 {cmd_name}")
+            messagebox.showerror("錯誤", "找不到 single-file！請確認已安裝並執行 npm install -g single-file-cli")
             return False
 
     def load_files(self):
@@ -141,15 +127,10 @@ class ArchiverApp:
         if not selected: return
         filename = self.tree.item(selected[0])['values'][0]
         filepath = os.path.join(REPO_PATH, filename)
-        
-        # 跨平台開啟檔案
         try:
-            if self.system == "Windows":
-                os.startfile(filepath)
-            elif self.system == "Darwin": # macOS
-                subprocess.run(["open", filepath], check=True)
-            else: # Linux
-                subprocess.run(["xdg-open", filepath], check=True)
+            if self.system == "Windows": os.startfile(filepath)
+            elif self.system == "Darwin": subprocess.run(["open", filepath], check=True)
+            else: subprocess.run(["xdg-open", filepath], check=True)
         except Exception as e:
             messagebox.showerror("錯誤", str(e))
 
@@ -179,10 +160,10 @@ class ArchiverApp:
         timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
         filename = f"saved-{timestamp}.html"
         
-        # --- V48 連結復活版 JS 腳本 (跨平台通用) ---
+        # --- V50 廣告殺手版 JS 腳本 ---
         js_script = r"""
         (function() {
-            console.log("Local Archiver V48 Running (Native Anchor Mode)...");
+            console.log("Local Archiver V50 Running (AdBlock Mode)...");
             window.scrollBy(0, 100); setTimeout(() => window.scrollBy(0, -100), 500);
             
             function queryAllDeep(selector, root = document) {
@@ -196,6 +177,13 @@ class ArchiverApp:
 
             function fixAll() {
                 const targets = [...queryAllDeep('iframe'), ...queryAllDeep('video')];
+                
+                // --- 定義廣告關鍵字黑名單 ---
+                const blockedKeywords = [
+                    'googlesyndication', 'doubleclick', 'googleads', 
+                    'safeframe', 'adservice', 'adnxs', 'ads', 'ad-' 
+                ];
+
                 targets.forEach(el => {
                     if(el.dataset.patched === "true") return;
                     
@@ -206,6 +194,13 @@ class ArchiverApp:
 
                     if(!src || src === "about:blank") return;
                     if(el.offsetWidth < 30) return;
+
+                    // --- V50 關鍵：檢查是否為廣告 ---
+                    // 如果網址包含黑名單關鍵字，直接跳過，不處理，不變按鈕
+                    if (blockedKeywords.some(keyword => src.includes(keyword))) {
+                        console.log("🚫 封鎖廣告:", src);
+                        return; 
+                    }
 
                     let bg='rgba(0,0,0,0.8)', icon='🔗', txt='開啟內容', col='#007bff', url=src;
                     
@@ -220,7 +215,6 @@ class ArchiverApp:
                         bg = 'rgba(0,0,0,0.5)';
                     }
 
-                    // 處理父層連結衝突
                     let parentLink = el.closest('a');
                     if (parentLink) {
                         parentLink.removeAttribute('href'); 
@@ -254,10 +248,8 @@ class ArchiverApp:
         with open("local_fix.js", "w", encoding="utf-8") as f:
             f.write(js_script)
 
-        # 組合指令 (跨平台)
-        cmd_name = self.get_singlefile_cmd()
         cmd = [
-            cmd_name, 
+            self.get_singlefile_cmd(), 
             url, 
             filename,
             "--browser-script=local_fix.js",
@@ -269,14 +261,12 @@ class ArchiverApp:
         ]
 
         try:
-            # Mac 不需要 startupinfo
+            startupinfo = None
             if self.system == "Windows":
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', startupinfo=startupinfo)
-            else:
-                process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8')
-
+            
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', startupinfo=startupinfo)
             stdout, stderr = process.communicate()
 
             if process.returncode == 0:
@@ -296,11 +286,7 @@ class ArchiverApp:
 
     def run_git_sync(self):
         try:
-            # Mac 不需要 creationflags
-            kwargs = {}
-            if self.system == "Windows":
-                kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
-
+            kwargs = {'creationflags': subprocess.CREATE_NO_WINDOW} if self.system == "Windows" else {}
             subprocess.run(["git", "add", "."], check=True, **kwargs)
             subprocess.run(["git", "commit", "-m", f"Local Update {datetime.now()}"], check=False, **kwargs)
             subprocess.run(["git", "pull", "--rebase"], check=True, **kwargs)

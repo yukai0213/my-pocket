@@ -1,6 +1,6 @@
 
         (function() {
-            console.log("Local Archiver V48 Running (Native Anchor Mode)...");
+            console.log("Local Archiver V50 Running (AdBlock Mode)...");
             window.scrollBy(0, 100); setTimeout(() => window.scrollBy(0, -100), 500);
             
             function queryAllDeep(selector, root = document) {
@@ -14,6 +14,13 @@
 
             function fixAll() {
                 const targets = [...queryAllDeep('iframe'), ...queryAllDeep('video')];
+                
+                // --- 定義廣告關鍵字黑名單 ---
+                const blockedKeywords = [
+                    'googlesyndication', 'doubleclick', 'googleads', 
+                    'safeframe', 'adservice', 'adnxs', 'ads', 'ad-' 
+                ];
+
                 targets.forEach(el => {
                     if(el.dataset.patched === "true") return;
                     
@@ -24,6 +31,13 @@
 
                     if(!src || src === "about:blank") return;
                     if(el.offsetWidth < 30) return;
+
+                    // --- V50 關鍵：檢查是否為廣告 ---
+                    // 如果網址包含黑名單關鍵字，直接跳過，不處理，不變按鈕
+                    if (blockedKeywords.some(keyword => src.includes(keyword))) {
+                        console.log("🚫 封鎖廣告:", src);
+                        return; 
+                    }
 
                     let bg='rgba(0,0,0,0.8)', icon='🔗', txt='開啟內容', col='#007bff', url=src;
                     
@@ -38,7 +52,6 @@
                         bg = 'rgba(0,0,0,0.5)';
                     }
 
-                    // 處理父層連結衝突
                     let parentLink = el.closest('a');
                     if (parentLink) {
                         parentLink.removeAttribute('href'); 
